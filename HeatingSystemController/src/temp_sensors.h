@@ -1,7 +1,7 @@
 // sensors.h
 
-#ifndef SENSORS_H
-#define SENSORS_H
+#ifndef TEMP_SENSORS_H
+#define TEMP_SENSORS_H
 
 #include <OneWire.h>
 #include <DallasTemperature.h>

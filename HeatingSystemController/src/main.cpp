@@ -4,7 +4,7 @@
 
 #include "certificates.h"
 #include "config.h"
-#include "sensors.h"
+#include "temp_sensors.h"
 #include "comon.h"
 
 // Globális webszerver változó
@@ -39,6 +39,18 @@ void handleHeatingRequest()
     response += "], \"error\": null }";
   }
   server.send(200, "application/json", response);
+}
+
+// Funkció az újraindításhoz
+void handleReboot() {
+    // Ellenőrizzük a paramétereket
+    if (server.arg("user") == "admin" && server.arg("password") == "password") {
+        server.send(200, "text/plain", "Rebooting..."); // Válasz a kérésre
+        delay(1000); // Várjunk egy kicsit, hogy a válasz eljusson
+        ESP.restart(); // Újraindítás
+    } else {
+        server.send(401, "text/plain", "Unauthorized"); // Jogosulatlan válasz
+    }
 }
 
 void setup()
@@ -98,7 +110,8 @@ void setup()
   server.on("/configuration", HTTP_POST, handleConfiguration);
   server.on("/upload", HTTP_POST, []()
             { server.send(200, "text/plain", "File Uploaded Successfully"); }, handleFileUpload);
-
+  // Beállítjuk a reboot végpontot
+  server.on("/reboot", HTTP_GET, handleReboot);
   const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
   // ask server to track these headers
