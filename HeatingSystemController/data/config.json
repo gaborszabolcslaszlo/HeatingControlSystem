@@ -1,0 +1,7 @@
+{
+    "wifiSSID": "GaborEniko",
+    "wifiPassword": "eniko1980",
+    "AP_SSID" : "kazanAP",
+    "AP_Password" : "12345678",
+    "WifiMode" : "STA"
+}
