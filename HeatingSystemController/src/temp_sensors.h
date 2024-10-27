@@ -30,20 +30,6 @@ DallasTemperature sensors(&oneWire);
 // Maximum 10 szenzorra számítunk
 DeviceAddress sensorAddresses[10];
 
-void configureSensors(StaticJsonDocument<1024> &doc)
-{
-  logMessage("Start configure temperature sensors");
-  // Szenzorok betöltése
-
-  JsonArray sensorsArray = doc["sensors"];
-  for (size_t i = 0; i < sensorsArray.size(); i++)
-  {
-    JsonVariant sensor = sensorsArray[i];
-    String sensorId = sensor["id"].as<String>();
-    int customId = sensor["custom_id"];
-    logMessage("Temperature senzor: %s, -> %d", sensorId.c_str(), customId);
-  }
-}
 // A szenzor címének kiírása (ROM Address)
 void printAddress(DeviceAddress deviceAddress)
 {

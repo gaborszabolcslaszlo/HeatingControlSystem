@@ -64,7 +64,6 @@ void setup()
   // SPIFFS inicializálása és konfiguráció betöltése
   loadConfig();
 
-  configureSensors(configContent);
   intiHeatingSystem("/config.json"); 
   // NTP kliens indítása
   timeClient.begin();

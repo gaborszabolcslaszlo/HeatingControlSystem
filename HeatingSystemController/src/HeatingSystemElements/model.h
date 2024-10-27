@@ -1,43 +1,82 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <FS.h>  // SPIFFS for file handling on ESP8266
-
-
+#include <FS.h> // SPIFFS for file handling on ESP8266
 
 // Print function for the entire heating system
 void printHeatingSystemConfig();
 
+enum class SensorPosition
+{
+    Tour,
+    Retour,
+    Body,
+    Invalid // Used for error handling
+};
+
+// Function to convert string to SensorPosition enum
+SensorPosition stringToPosition(const String &positionStr)
+{
+    if (positionStr.equalsIgnoreCase("tour"))
+        return SensorPosition::Tour;
+    if (positionStr.equalsIgnoreCase("retour"))
+        return SensorPosition::Retour;
+    if (positionStr.equalsIgnoreCase("body"))
+        return SensorPosition::Body;
+    return SensorPosition::Invalid; // Return Invalid for any other string
+}
 
 // Sensor class
-class Sensor {
+class Sensor
+{
 public:
     String model;
+    SensorPosition position; // Change position type to enum
     String id;
 
-    Sensor() {}
+    Sensor(const String &model, SensorPosition position, const String &id)
+        : model(model), position(position), id(id) {}
 
-    Sensor(String model, String id) {
-        this->model = model;
-        this->id = id;
+    void print() const
+    {
+        Serial.print("  Sensor: ");
+        Serial.print("Model: ");
+        Serial.print(model);
+        Serial.print(", Position: ");
+        Serial.print(positionToString(position));
+        Serial.print(", ID: ");
+        Serial.println(id);
     }
 
-    bool validate() {
-        if (model.isEmpty() || id.isEmpty()) {
-            Serial.println("Error: Sensor model or ID is missing.");
+    bool validate() const
+    {
+        if (model.isEmpty() || id.isEmpty() || position == SensorPosition::Invalid)
+        {
+            Serial.println("Error: Sensor model, id, or position is invalid.");
             return false;
         }
         return true;
     }
 
-    void print() {
-        Serial.println("Sensor:");
-        Serial.println("  Model: " + model);
-        Serial.println("  ID: " + id);
+private:
+    String positionToString(SensorPosition pos) const
+    {
+        switch (pos)
+        {
+        case SensorPosition::Tour:
+            return "tour";
+        case SensorPosition::Retour:
+            return "retour";
+        case SensorPosition::Body:
+            return "body";
+        default:
+            return "invalid";
+        }
     }
 };
 
 // Pump class
-class Pump {
+class Pump
+{
 public:
     String name;
     String model;
@@ -47,7 +86,8 @@ public:
 
     Pump() {}
 
-    Pump(String name, String model, int maxControlSig, int minControlSig, String workingMode) {
+    Pump(String name, String model, int maxControlSig, int minControlSig, String workingMode)
+    {
         this->name = name;
         this->model = model;
         this->maxControlSig = maxControlSig;
@@ -55,15 +95,18 @@ public:
         this->workingMode = workingMode;
     }
 
-    bool validate() {
-        if (name.isEmpty() || model.isEmpty() || workingMode.isEmpty()) {
+    bool validate()
+    {
+        if (name.isEmpty() || model.isEmpty() || workingMode.isEmpty())
+        {
             Serial.println("Error: Pump name, model, or working mode is missing.");
             return false;
         }
         return true;
     }
 
-    void print() {
+    void print()
+    {
         Serial.println("Pump:");
         Serial.println("  Name: " + name);
         Serial.println("  Model: " + model);
@@ -74,7 +117,8 @@ public:
 };
 
 // Valve class
-class Valve {
+class Valve
+{
 public:
     String name;
     int maxControlSig;
@@ -83,22 +127,26 @@ public:
 
     Valve() {}
 
-    Valve(String name, int maxControlSig, int minControlSig, String workingMode) {
+    Valve(String name, int maxControlSig, int minControlSig, String workingMode)
+    {
         this->name = name;
         this->maxControlSig = maxControlSig;
         this->minControlSig = minControlSig;
         this->workingMode = workingMode;
     }
 
-    bool validate() {
-        if (name.isEmpty()) {
+    bool validate()
+    {
+        if (name.isEmpty())
+        {
             Serial.println("Error: Valve name is missing.");
             return false;
         }
         return true;
     }
 
-    void print() {
+    void print()
+    {
         Serial.println("Valve:");
         Serial.println("  Name: " + name);
         Serial.println("  Max Control Signal: " + String(maxControlSig));
@@ -108,7 +156,8 @@ public:
 };
 
 // HeatingElement class (for Kazan, Radiators, Puffer)
-class HeatingElement {
+class HeatingElement
+{
 public:
     String name;
     std::vector<Sensor> sensors;
@@ -117,48 +166,60 @@ public:
 
     HeatingElement() {}
 
-    HeatingElement(String name) {
+    HeatingElement(String name)
+    {
         this->name = name;
     }
 
-    void addSensor(Sensor sensor) {
+    void addSensor(Sensor sensor)
+    {
         sensors.push_back(sensor);
     }
 
-    void addPump(Pump pump) {
+    void addPump(Pump pump)
+    {
         pumps.push_back(pump);
     }
 
-    void addValve(Valve valve) {
+    void addValve(Valve valve)
+    {
         valves.push_back(valve);
     }
 
-    bool validate() {
+    bool validate()
+    {
         // Name must be present
-        if (name.isEmpty()) {
+        if (name.isEmpty())
+        {
             Serial.println("Error: Heating element name is missing.");
             return false;
         }
 
         // Validate sensors if they exist
-        for (auto& sensor : sensors) {
-            if (!sensor.validate()) {
+        for (auto &sensor : sensors)
+        {
+            if (!sensor.validate())
+            {
                 Serial.println("Error: Invalid sensor in " + name);
                 return false;
             }
         }
 
         // Validate pumps if they exist
-        for (auto& pump : pumps) {
-            if (!pump.validate()) {
+        for (auto &pump : pumps)
+        {
+            if (!pump.validate())
+            {
                 Serial.println("Error: Invalid pump in " + name);
                 return false;
             }
         }
 
         // Validate valves if they exist
-        for (auto& valve : valves) {
-            if (!valve.validate()) {
+        for (auto &valve : valves)
+        {
+            if (!valve.validate())
+            {
                 Serial.println("Error: Invalid valve in " + name);
                 return false;
             }
@@ -167,28 +228,33 @@ public:
         return true;
     }
 
-    void print() {
+    void print()
+    {
         Serial.println("Heating Element: " + name);
 
         Serial.println("  Sensors:");
-        for (auto& sensor : sensors) {
+        for (auto &sensor : sensors)
+        {
             sensor.print();
         }
 
         Serial.println("  Pumps:");
-        for (auto& pump : pumps) {
+        for (auto &pump : pumps)
+        {
             pump.print();
         }
 
         Serial.println("  Valves:");
-        for (auto& valve : valves) {
+        for (auto &valve : valves)
+        {
             valve.print();
         }
     }
 };
 
 // HeatingSystem class (contains the entire system)
-class HeatingSystem {
+class HeatingSystem
+{
 public:
     std::vector<HeatingElement> kazan;
     std::vector<HeatingElement> radiators;
@@ -196,201 +262,191 @@ public:
 
     HeatingSystem() {}
 
-    void addKazan(HeatingElement element) {
+    void addKazan(HeatingElement element)
+    {
         kazan.push_back(element);
     }
 
-    void addRadiator(HeatingElement element) {
+    void addRadiator(HeatingElement element)
+    {
         radiators.push_back(element);
     }
 
-    void addPuffer(HeatingElement element) {
+    void addPuffer(HeatingElement element)
+    {
         puffer.push_back(element);
     }
 
-    bool validate() {
+    bool validate()
+    {
         // Validate Kazan elements
-        if (kazan.empty()) {
+        if (kazan.empty())
+        {
             Serial.println("Error: Kazan element is missing in the configuration.");
             return false;
         }
 
-        for (auto& element : kazan) {
-            if (!element.validate()) return false;
+        for (auto &element : kazan)
+        {
+            if (!element.validate())
+                return false;
         }
 
         // Validate Radiators (can be empty, but must validate if present)
-        for (auto& element : radiators) {
-            if (!element.validate()) return false;
+        for (auto &element : radiators)
+        {
+            if (!element.validate())
+                return false;
         }
 
         // Validate Puffer (can be empty, but must validate if present)
-        for (auto& element : puffer) {
-            if (!element.validate()) return false;
+        for (auto &element : puffer)
+        {
+            if (!element.validate())
+                return false;
         }
 
         return true;
     }
 
-    void print() {
+    void print()
+    {
         Serial.println("Heating System:");
 
         Serial.println("  Kazan Elements:");
-        for (auto& element : kazan) {
+        for (auto &element : kazan)
+        {
             element.print();
         }
 
         Serial.println("  Radiator Elements:");
-        for (auto& element : radiators) {
+        for (auto &element : radiators)
+        {
             element.print();
         }
 
         Serial.println("  Puffer Elements:");
-        for (auto& element : puffer) {
+        for (auto &element : puffer)
+        {
             element.print();
         }
     }
 };
 
-// Global heating system object
-HeatingSystem heatingSystem;
+// Global collection for heating elements
+std::vector<HeatingElement> heatingSystemCollection;
 
 // Load JSON configuration from file
-void intiHeatingSystem(const char* filename) {
+void intiHeatingSystem(const char* filename)
+{
+    Serial.println("----- int Heating System -----");
     File configFile = SPIFFS.open(filename, "r");
     if (!configFile) {
         Serial.println("Failed to open configuration file.");
         return;
     }
 
-    StaticJsonDocument<2048> doc;
+    StaticJsonDocument<2048> doc; // Adjust size as necessary
     DeserializationError error = deserializeJson(doc, configFile);
-    if (error) {
-        Serial.println("Error reading JSON configuration.");
+
+    if (error)
+    {
+        Serial.print(F("Failed to read configuration. "));
+        Serial.println(error.f_str());
         return;
     }
 
-    // Read Kazan elements
-    JsonArray kazanArray = doc["HeatingSystem"]["Kazan"];
-    for (JsonObject element : kazanArray) {
-        HeatingElement kazanElement(element["name"].as<String>());
+    JsonObject heatingSystem = doc["HeatingSystem"];
 
-        // Read sensors
-        JsonArray sensors = element["sensors"];
-        for (JsonObject sensor : sensors) {
-            kazanElement.addSensor(Sensor(sensor["model"].as<String>(), sensor["id"].as<String>()));
+    // Check for mandatory components and validate each section
+    for (JsonPair keyValue : heatingSystem)
+    {
+        const char *key = keyValue.key().c_str(); // Get the key
+        JsonArray elements = heatingSystem[key].as<JsonArray>();
+
+        for (JsonObject element : elements)
+        {
+            String name = element["name"];
+            if (name.isEmpty())
+            {
+                Serial.println(F("Error: Name is mandatory for each element."));
+                continue; // Skip this element if name is missing
+            }
+
+            HeatingElement heatingElement(name);
+
+            // Validate and load sensors
+            JsonArray sensors = element["sensors"].as<JsonArray>();
+            for (JsonObject sensor : sensors)
+            {
+                String model = sensor["model"];
+                SensorPosition position = stringToPosition(sensor["position"]);
+                String id = sensor["id"];
+
+                Sensor newSensor(model, position, id);
+                if (newSensor.validate())
+                {
+                    heatingElement.addSensor(newSensor);
+                }
+                else
+                {
+                    Serial.println(F("Error: Invalid sensor configuration."));
+                }
+            }
+
+            // Load pumps (name is mandatory)
+            JsonArray pumps = element["pumps"].as<JsonArray>();
+            for (JsonObject pump : pumps)
+            {
+                String pumpName = pump["name"];
+                if (pumpName.isEmpty())
+                {
+                    Serial.println(F("Error: Name is mandatory for each pump."));
+                    continue; // Skip this pump if name is missing
+                }
+
+                String model = pump["model"];
+                int maxControlSig = pump["maxControlSig"];
+                int minControlSig = pump["minControlSig"];
+                String workingMode = pump["workingMode"];
+
+                Pump newPump(pumpName, model, maxControlSig, minControlSig, workingMode);
+                heatingElement.addPump(newPump);
+            }
+
+            // Load valves (name is mandatory)
+            JsonArray valves = element["valves"].as<JsonArray>();
+            for (JsonObject valve : valves)
+            {
+                String valveName = valve["name"];
+                if (valveName.isEmpty())
+                {
+                    Serial.println(F("Error: Name is mandatory for each valve."));
+                    continue; // Skip this valve if name is missing
+                }
+
+                int maxControlSig = valve["maxControlSig"];
+                int minControlSig = valve["minControlSig"];
+                String workingMode = valve["workingMode"];
+
+                Valve newValve(valveName, maxControlSig, minControlSig, workingMode);
+                heatingElement.addValve(newValve);
+            }
+
+            // Add heatingElement to your heating system collection
+            heatingSystemCollection.push_back(heatingElement); // Store the heating element in the collection
+            printHeatingSystemConfig();
         }
-
-        // Read pumps
-        JsonArray pumps = element["pumps"];
-        for (JsonObject pump : pumps) {
-            kazanElement.addPump(Pump(pump["name"].as<String>(), pump["model"].as<String>(), pump["maxControlSig"].as<int>(), pump["minControlSig"].as<int>(), pump["workingMode"].as<String>()));
-        }
-
-        // Read valves
-        JsonArray valves = element["valves"];
-        for (JsonObject valve : valves) {
-            kazanElement.addValve(Valve(valve["name"].as<String>(), valve["maxControlSig"].as<int>(), valve["minControlSig"].as<int>(), valve["workingMode"].as<String>()));
-        }
-
-        heatingSystem.addKazan(kazanElement);
-    }
-
-    // Read Radiator elements
-    JsonArray radiatorArray = doc["HeatingSystem"]["Radiators"];
-    for (JsonObject element : radiatorArray) {
-        HeatingElement radiatorElement(element["name"].as<String>());
-
-        // Read sensors
-        JsonArray sensors = element["sensors"];
-        for (JsonObject sensor : sensors) {
-            radiatorElement.addSensor(Sensor(sensor["model"].as<String>(), sensor["id"].as<String>()));
-        }
-
-        // Read pumps
-        JsonArray pumps = element["pumps"];
-        for (JsonObject pump : pumps) {
-            radiatorElement.addPump(Pump(pump["name"].as<String>(), pump["model"].as<String>(), pump["maxControlSig"].as<int>(), pump["minControlSig"].as<int>(), pump["workingMode"].as<String>()));
-        }
-
-        // Read valves
-        JsonArray valves = element["valves"];
-        for (JsonObject valve : valves) {
-            radiatorElement.addValve(Valve(valve["name"].as<String>(), valve["maxControlSig"].as<int>(), valve["minControlSig"].as<int>(), valve["workingMode"].as<String>()));
-        }
-
-        heatingSystem.addRadiator(radiatorElement);
-    }
-
-    // Read Puffer elements
-    JsonArray pufferArray = doc["HeatingSystem"]["Puffer"];
-    for (JsonObject element : pufferArray) {
-        HeatingElement pufferElement(element["name"].as<String>());
-
-        // Read sensors
-        JsonArray sensors = element["sensors"];
-        for (JsonObject sensor : sensors) {
-            pufferElement.addSensor(Sensor(sensor["model"].as<String>(), sensor["id"].as<String>()));
-        }
-
-        // Read pumps
-        JsonArray pumps = element["pumps"];
-        for (JsonObject pump : pumps) {
-            pufferElement.addPump(Pump(pump["name"].as<String>(), pump["model"].as<String>(), pump["maxControlSig"].as<int>(), pump["minControlSig"].as<int>(), pump["workingMode"].as<String>()));
-        }
-
-        // Read valves
-        JsonArray valves = element["valves"];
-        for (JsonObject valve : valves) {
-            pufferElement.addValve(Valve(valve["name"].as<String>(), valve["maxControlSig"].as<int>(), valve["minControlSig"].as<int>(), valve["workingMode"].as<String>()));
-        }
-
-        heatingSystem.addPuffer(pufferElement);
-    }
-
-    // Validate the entire heating system
-    if (!heatingSystem.validate()) {
-        Serial.println("Error: Invalid heating system configuration.");
-    } else {
-        Serial.println("Heating system configuration loaded successfully.");
-        printHeatingSystemConfig();
     }
 }
-
-
-
 // Print function for the entire heating system
-void printHeatingSystemConfig() {
+void printHeatingSystemConfig()
+{
     Serial.println("----- Heating System Configuration -----");
 
-    // Print Kazan elements
-    if (!heatingSystem.kazan.empty()) {
-        Serial.println("Kazan Elements:");
-        for (auto& element : heatingSystem.kazan) {
-            element.print();
-        }
-    } else {
-        Serial.println("No Kazan elements present.");
-    }
-
-    // Print Radiator elements
-    if (!heatingSystem.radiators.empty()) {
-        Serial.println("Radiator Elements:");
-        for (auto& element : heatingSystem.radiators) {
-            element.print();
-        }
-    } else {
-        Serial.println("No Radiator elements present.");
-    }
-
-    // Print Puffer elements
-    if (!heatingSystem.puffer.empty()) {
-        Serial.println("Puffer Elements:");
-        for (auto& element : heatingSystem.puffer) {
-            element.print();
-        }
-    } else {
-        Serial.println("No Puffer elements present.");
+    for (HeatingElement &element : heatingSystemCollection)
+    {
+        element.print();
     }
 
     Serial.println("----- End of Heating System Configuration -----");
