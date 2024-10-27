@@ -7,22 +7,38 @@ void printHeatingSystemConfig();
 
 enum class SensorPosition
 {
-    Tour,
-    Retour,
-    Body,
-    Invalid // Used for error handling
+    TOUR,
+    RETOUR,
+    BODY,
+    UNKNOWN // Used for error handling
 };
+
+// Utility function to convert SensorPosition enum to string for Serial printing
+String positionToString(SensorPosition pos)
+{
+    switch (pos)
+    {
+    case SensorPosition::TOUR:
+        return "tour";
+    case SensorPosition::RETOUR:
+        return "retour";
+    case SensorPosition::BODY:
+        return "body";
+    default:
+        return "unknown";
+    }
+}
 
 // Function to convert string to SensorPosition enum
 SensorPosition stringToPosition(const String &positionStr)
 {
     if (positionStr.equalsIgnoreCase("tour"))
-        return SensorPosition::Tour;
+        return SensorPosition::TOUR;
     if (positionStr.equalsIgnoreCase("retour"))
-        return SensorPosition::Retour;
+        return SensorPosition::RETOUR;
     if (positionStr.equalsIgnoreCase("body"))
-        return SensorPosition::Body;
-    return SensorPosition::Invalid; // Return Invalid for any other string
+        return SensorPosition::BODY;
+    return SensorPosition::UNKNOWN; // Return Invalid for any other string
 }
 
 // Sensor class
@@ -38,8 +54,8 @@ public:
 
     void print() const
     {
-        Serial.print("  Sensor: ");
-        Serial.print("Model: ");
+        Serial.print("      Sensor: ");
+        Serial.print("  Model: ");
         Serial.print(model);
         Serial.print(", Position: ");
         Serial.print(positionToString(position));
@@ -49,7 +65,7 @@ public:
 
     bool validate() const
     {
-        if (model.isEmpty() || id.isEmpty() || position == SensorPosition::Invalid)
+        if (model.isEmpty() || id.isEmpty() || position == SensorPosition::UNKNOWN)
         {
             Serial.println("Error: Sensor model, id, or position is invalid.");
             return false;
@@ -62,11 +78,11 @@ private:
     {
         switch (pos)
         {
-        case SensorPosition::Tour:
+        case SensorPosition::TOUR:
             return "tour";
-        case SensorPosition::Retour:
+        case SensorPosition::RETOUR:
             return "retour";
-        case SensorPosition::Body:
+        case SensorPosition::BODY:
             return "body";
         default:
             return "invalid";
@@ -107,12 +123,12 @@ public:
 
     void print()
     {
-        Serial.println("Pump:");
-        Serial.println("  Name: " + name);
-        Serial.println("  Model: " + model);
-        Serial.println("  Max Control Signal: " + String(maxControlSig));
-        Serial.println("  Min Control Signal: " + String(minControlSig));
-        Serial.println("  Working Mode: " + workingMode);
+        Serial.print("      Pump:");
+        Serial.print("  Name: " + name);
+        Serial.print(", Model: " + model);
+        Serial.print(", Max Control Signal: " + String(maxControlSig));
+        Serial.print(", Min Control Signal: " + String(minControlSig));
+        Serial.println(", Working Mode: " + workingMode);
     }
 };
 
@@ -147,11 +163,11 @@ public:
 
     void print()
     {
-        Serial.println("Valve:");
-        Serial.println("  Name: " + name);
-        Serial.println("  Max Control Signal: " + String(maxControlSig));
-        Serial.println("  Min Control Signal: " + String(minControlSig));
-        Serial.println("  Working Mode: " + workingMode);
+        Serial.print("      Valve:");
+        Serial.print("  Name: " + name);
+        Serial.print(",  Max Control Signal: " + String(maxControlSig));
+        Serial.print(",  Min Control Signal: " + String(minControlSig));
+        Serial.println(",  Working Mode: " + workingMode);
     }
 };
 
@@ -163,6 +179,12 @@ public:
     std::vector<Sensor> sensors;
     std::vector<Pump> pumps;
     std::vector<Valve> valves;
+
+    std::vector<Sensor *> tourSensors;
+    std::vector<Sensor *> retourSensors;
+    std::vector<Sensor *> bodySensors;
+
+    int directionOfHeatTransfer = 0;
 
     HeatingElement() {}
 
@@ -184,6 +206,46 @@ public:
     void addValve(Valve valve)
     {
         valves.push_back(valve);
+    }
+
+    // Function to classify sensors based on their position
+    void classifySensors()
+    {
+        Serial.println("----- classify sensors modul:" + name + "-----");
+        for (const auto &sensor : sensors)
+        {
+            if (sensor.position == SensorPosition::TOUR)
+            {
+                tourSensors.push_back(const_cast<Sensor *>(&sensor)); // Store reference to the original object
+            }
+            else if (sensor.position == SensorPosition::RETOUR)
+            {
+                retourSensors.push_back(const_cast<Sensor *>(&sensor)); // Store reference to the original object
+            }
+            else if (sensor.position == SensorPosition::BODY)
+            {
+                bodySensors.push_back(const_cast<Sensor *>(&sensor)); // Store reference to the original object
+            }
+        }
+    }
+
+    // Function to print sensors using Serial
+    void printSensors(const std::vector<Sensor *> &sensors, const String &group)
+    {   String s = "";
+        if(sensors.size() > (std::size_t)1)
+        {
+            s = " sensors are redundant";
+        }
+        Serial.println("    Sensors in " + group + " group " + s);
+        for (const auto &sensor : sensors)
+        {
+            Serial.print("          Model: ");
+            Serial.print(sensor->model);
+            Serial.print(", ID: ");
+            Serial.print(sensor->id);
+            Serial.print(", Position: ");
+            Serial.println(positionToString(sensor->position));
+        }
     }
 
     bool validate()
@@ -228,7 +290,7 @@ public:
         return true;
     }
 
-    void print()
+    void printHeatingElement()
     {
         Serial.println("Heating Element: " + name);
 
@@ -237,6 +299,10 @@ public:
         {
             sensor.print();
         }
+
+        printSensors(tourSensors, positionToString(SensorPosition::TOUR));
+        printSensors(retourSensors, positionToString(SensorPosition::RETOUR));
+        printSensors(bodySensors, positionToString(SensorPosition::BODY));
 
         Serial.println("  Pumps:");
         for (auto &pump : pumps)
@@ -309,26 +375,26 @@ public:
         return true;
     }
 
-    void print()
+    void printHeatingSystem()
     {
         Serial.println("Heating System:");
 
         Serial.println("  Kazan Elements:");
         for (auto &element : kazan)
         {
-            element.print();
+            element.printHeatingElement();
         }
 
         Serial.println("  Radiator Elements:");
         for (auto &element : radiators)
         {
-            element.print();
+            element.printHeatingElement();
         }
 
         Serial.println("  Puffer Elements:");
         for (auto &element : puffer)
         {
-            element.print();
+            element.printHeatingElement();
         }
     }
 };
@@ -337,11 +403,12 @@ public:
 std::vector<HeatingElement> heatingSystemCollection;
 
 // Load JSON configuration from file
-void intiHeatingSystem(const char* filename)
+void intiHeatingSystem(const char *filename)
 {
     Serial.println("----- int Heating System -----");
     File configFile = SPIFFS.open(filename, "r");
-    if (!configFile) {
+    if (!configFile)
+    {
         Serial.println("Failed to open configuration file.");
         return;
     }
@@ -377,6 +444,7 @@ void intiHeatingSystem(const char* filename)
 
             // Validate and load sensors
             JsonArray sensors = element["sensors"].as<JsonArray>();
+            bool isSensorsValid = true;
             for (JsonObject sensor : sensors)
             {
                 String model = sensor["model"];
@@ -390,8 +458,13 @@ void intiHeatingSystem(const char* filename)
                 }
                 else
                 {
+                    isSensorsValid = false;
                     Serial.println(F("Error: Invalid sensor configuration."));
                 }
+            }
+            if (isSensorsValid)
+            {
+                heatingElement.classifySensors();
             }
 
             // Load pumps (name is mandatory)
@@ -435,19 +508,7 @@ void intiHeatingSystem(const char* filename)
 
             // Add heatingElement to your heating system collection
             heatingSystemCollection.push_back(heatingElement); // Store the heating element in the collection
-            printHeatingSystemConfig();
+            heatingElement.printHeatingElement();
         }
     }
-}
-// Print function for the entire heating system
-void printHeatingSystemConfig()
-{
-    Serial.println("----- Heating System Configuration -----");
-
-    for (HeatingElement &element : heatingSystemCollection)
-    {
-        element.print();
-    }
-
-    Serial.println("----- End of Heating System Configuration -----");
 }

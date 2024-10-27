@@ -114,6 +114,8 @@ void setup()
             { server.send(200, "text/plain", "File Uploaded Successfully"); }, handleFileUpload);
   // Beállítjuk a reboot végpontot
   server.on("/reboot", HTTP_GET, handleReboot);
+
+  
   const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
   // ask server to track these headers
@@ -138,6 +140,6 @@ void loop()
   delay(1000);
   sensors.requestTemperatures();
   temperature = sensors.getTempCByIndex(0);
-  logMessage("Temp: %f", temperature);
+  //logMessage("Temp: %f", temperature);
   // MDNS.update();
 }

@@ -16,6 +16,11 @@
                     },
                     {
                         "model": "DS12B20",
+                        "position": "tour",
+                        "id": "28-000007602b99"
+                    },
+                    {
+                        "model": "DS12B20",
                         "position": "retour",
                         "id": "28-000007602b95"
                     }
