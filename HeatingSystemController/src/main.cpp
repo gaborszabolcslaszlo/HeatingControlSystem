@@ -6,6 +6,7 @@
 #include "config.h"
 #include "temp_sensors.h"
 #include "comon.h"
+#include "HeatingSystemElements/model.h"
 
 // Globális webszerver változó
 ESP8266WebServerSecure server(443);
@@ -63,6 +64,8 @@ void setup()
   // SPIFFS inicializálása és konfiguráció betöltése
   loadConfig();
 
+  configureSensors(configContent);
+  intiHeatingSystem("/config.json"); 
   // NTP kliens indítása
   timeClient.begin();
   timeClient.update();

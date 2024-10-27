@@ -24,6 +24,8 @@ struct Configuration {
 // Globális konfigurációs változó
 Configuration config;
 
+StaticJsonDocument<1024> configContent;
+
 // Konfiguráció betöltése a fájlból
 void loadConfig() {
   // Az SPIFFS inicializálása
@@ -51,8 +53,7 @@ void loadConfig() {
   configFile.readBytes(buf.get(), size);
 
   // JSON feldolgozása
-  StaticJsonDocument<512> jsonBuffer;
-  DeserializationError error = deserializeJson(jsonBuffer, buf.get());
+  DeserializationError error = deserializeJson(configContent, buf.get());
 
   if (error) {
     logMessage("Hiba a konfiguráció beolvasásakor.");
@@ -62,16 +63,17 @@ void loadConfig() {
   configFile.close();
 
   // Konfiguráció beállítása
-  config.wifiSSID = jsonBuffer["wifiSSID"].as<String>();
-  config.wifiPassword = jsonBuffer["wifiPassword"].as<String>();
-  config.APSSID = jsonBuffer["AP_SSID"].as<String>();
-  config.APPassword = jsonBuffer["AP_Password"].as<String>();
-  config.wifiMode = jsonBuffer["WifiMode"].as<String>();
+  config.wifiSSID = configContent["wifiSSID"].as<String>();
+  config.wifiPassword = configContent["wifiPassword"].as<String>();
+  config.APSSID = configContent["AP_SSID"].as<String>();
+  config.APPassword = configContent["AP_Password"].as<String>();
+  config.wifiMode = configContent["WifiMode"].as<String>();
   
 
   logMessage("Config betöltve:");
   logMessage("WiFi SSID: %s", config.wifiSSID);
   logMessage("WiFi Password: %s", config.wifiPassword);
+
 }
 
 // Konfiguráció mentése fájlba

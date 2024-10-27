@@ -47,7 +47,7 @@ void logMessage(const char* format, ...) {
   String timestamp = timeClient.getFormattedTime();
 
   // Összeállított üzenet
-  String logEntry = "[" + timestamp + "] " + String(buffer) + "\n";
+  String logEntry = String("[") + timestamp + String("] ") + String(buffer) + String("\n");
 
   // 1. Kiíratás Serial-ra
   Serial.print(logEntry);
