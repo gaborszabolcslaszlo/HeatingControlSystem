@@ -1,9 +1,101 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h> // SPIFFS for file handling on ESP8266
+#include <string>
+
+extern void writePwmIO(int id, float duty);
+extern void writeIO(int id, bool value);
 
 // Print function for the entire heating system
 void printHeatingSystemConfig();
+
+enum class PumpWorkingMode
+{
+    ONOFF,
+    PWM,
+    UNKNOWN
+};
+
+// "to string" függvény
+std::string PumpWorkingModeToString(PumpWorkingMode mode)
+{
+    switch (mode)
+    {
+    case PumpWorkingMode::ONOFF:
+        return "ONOFF";
+    case PumpWorkingMode::PWM:
+        return "PWM";
+    case PumpWorkingMode::UNKNOWN:
+    default:
+        return "UNKNOWN";
+    }
+}
+
+// "from string" függvény
+PumpWorkingMode PumpWorkingModeFromString(const std::string &modeStr)
+{
+    if (modeStr == "ON/OFF")
+    {
+        return PumpWorkingMode::ONOFF;
+    }
+    else if (modeStr == "PWM")
+    {
+        return PumpWorkingMode::PWM;
+    }
+    else
+    {
+        return PumpWorkingMode::UNKNOWN;
+    }
+}
+
+enum class HeatingElementType
+{
+    KAZAN,
+    RADIATOR,
+    BOJLER,
+    PUFER, // Used for error handling
+    UNKNOWN
+};
+std::string elementTypeToString(HeatingElementType type)
+{
+    switch (type)
+    {
+    case HeatingElementType::KAZAN:
+        return "KAZAN";
+    case HeatingElementType::RADIATOR:
+        return "RADIATOR";
+    case HeatingElementType::BOJLER:
+        return "BOJLER";
+    case HeatingElementType::PUFER:
+        return "PUFER";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+HeatingElementType elementTypeFromString(const std::string &str)
+{
+    if (str == "KAZAN")
+    {
+        return HeatingElementType::KAZAN;
+    }
+    else if (str == "RADIATOR")
+    {
+        return HeatingElementType::RADIATOR;
+    }
+    else if (str == "BOJLER")
+    {
+        return HeatingElementType::BOJLER;
+    }
+    else if (str == "PUFER")
+    {
+        return HeatingElementType::PUFER;
+    }
+    else
+    {
+        return HeatingElementType::UNKNOWN; // Return UNKNOWN for unrecognized strings
+    }
+}
 
 enum class SensorPosition
 {
@@ -41,6 +133,15 @@ SensorPosition stringToPosition(const String &positionStr)
     return SensorPosition::UNKNOWN; // Return Invalid for any other string
 }
 
+// New class that stores the flow rate value.
+class FlowRate
+{
+public:
+    float value;
+
+    FlowRate(float v) : value(v) {}
+};
+
 // Sensor class
 class Sensor
 {
@@ -48,6 +149,7 @@ public:
     String model;
     SensorPosition position; // Change position type to enum
     String id;
+    float temperature;
 
     Sensor(const String &model, SensorPosition position, const String &id)
         : model(model), position(position), id(id) {}
@@ -71,6 +173,29 @@ public:
             return false;
         }
         return true;
+    }
+
+    // Getter for temperature.
+    float getTemperature() const
+    {
+        return temperature;
+    }
+
+    // Static method to get temperature from a sensor
+    static float getSensorTemperature(const Sensor *sensor)
+    {
+        return sensor->getTemperature(); // Use getter to retrieve temperature
+    }
+
+    // Setter for temperature.
+    void setTemperature(float temp)
+    {
+        temperature = temp;
+    }
+
+    void update()
+    {
+        setTemperature(sensors.getTempC(reinterpret_cast<const uint8_t *>(id.c_str())));
     }
 
 private:
@@ -98,22 +223,35 @@ public:
     String model;
     int maxControlSig;
     int minControlSig;
-    String workingMode;
+    PumpWorkingMode workingMode;
+    int id;
 
     Pump() {}
 
-    Pump(String name, String model, int maxControlSig, int minControlSig, String workingMode)
+    Pump(int id, String name, String model, int maxControlSig, int minControlSig, String workingMode)
     {
+        this->id = id;
         this->name = name;
         this->model = model;
         this->maxControlSig = maxControlSig;
         this->minControlSig = minControlSig;
-        this->workingMode = workingMode;
+        this->workingMode = PumpWorkingModeFromString(workingMode.c_str());
+    }
+
+    int getControlSignal() const
+    {
+        return controlSignal;
+    }
+
+    // Setter metódus
+    void setControlSignal(int value)
+    {
+        controlSignal = value;
     }
 
     bool validate()
     {
-        if (name.isEmpty() || model.isEmpty() || workingMode.isEmpty())
+        if (name.isEmpty() || model.isEmpty() || workingMode != PumpWorkingMode::UNKNOWN)
         {
             Serial.println("Error: Pump name, model, or working mode is missing.");
             return false;
@@ -128,8 +266,23 @@ public:
         Serial.print(", Model: " + model);
         Serial.print(", Max Control Signal: " + String(maxControlSig));
         Serial.print(", Min Control Signal: " + String(minControlSig));
-        Serial.println(", Working Mode: " + workingMode);
+        Serial.printf(", Working Mode: %s \n", PumpWorkingModeToString(workingMode).c_str());
     }
+
+    void update()
+    {
+        if (workingMode == PumpWorkingMode::ONOFF)
+        {
+            writeIO(id, controlSignal);
+        }
+        if (workingMode == PumpWorkingMode::PWM)
+        {
+            writePwmIO(id, controlSignal);
+        }
+    }
+
+private:
+    int controlSignal = 0;
 };
 
 // Valve class
@@ -171,6 +324,47 @@ public:
     }
 };
 
+class HeatingTransfer
+{
+public:
+    HeatingTransfer() {}
+
+    float transferValue = 0;
+
+    // Calculate heating transfer based on the average temperature difference
+    void calculateHeatingTransferDirection(
+        const std::vector<Sensor *> &sensorsA,
+        const std::vector<Sensor *> &sensorsB,
+        const FlowRate &flowRate // FlowRate is a separate class
+    )
+    {
+        float avgTempA = calculateAverageTemperature(sensorsA);
+        float avgTempB = calculateAverageTemperature(sensorsB);
+
+        // Calculate the heating transfer based on the temperature difference and flow rate
+        transferValue = (avgTempA - avgTempB) * flowRate.value;
+    }
+
+private:
+    // Helper function to calculate average temperature from a list of sensors
+    float calculateAverageTemperature(const std::vector<Sensor *> &sensors)
+    {
+        float sum = 0.0f;
+        size_t count = 0;
+
+        for (const Sensor *sensor : sensors)
+        {
+            if (sensor)
+            {                                                // Check if the sensor is not null
+                sum += Sensor::getSensorTemperature(sensor); // Use static method to get temperature
+                ++count;                                     // Increment the count of valid sensors
+            }
+        }
+
+        return (count > 0) ? (sum / count) : 0.0f; // Return average temperature or 0.0f if no valid sensors
+    }
+};
+
 // HeatingElement class (for Kazan, Radiators, Puffer)
 class HeatingElement
 {
@@ -184,7 +378,7 @@ public:
     std::vector<Sensor *> retourSensors;
     std::vector<Sensor *> bodySensors;
 
-    int directionOfHeatTransfer = 0;
+    HeatingTransfer heatTransfer;
 
     HeatingElement() {}
 
@@ -208,6 +402,16 @@ public:
         valves.push_back(valve);
     }
 
+    float getTourTemperature()
+    {
+        return calculateAverageTemperature(tourSensors);
+    }
+
+    float getReTourTemperature()
+    {
+        return calculateAverageTemperature(retourSensors);
+    }
+
     // Function to classify sensors based on their position
     void classifySensors()
     {
@@ -229,10 +433,29 @@ public:
         }
     }
 
+        // Helper function to calculate average temperature from a list of sensors
+    float calculateAverageTemperature(const std::vector<Sensor *> &sensors)
+    {
+        float sum = 0.0f;
+        size_t count = 0;
+
+        for (const Sensor *sensor : sensors)
+        {
+            if (sensor)
+            {                                                // Check if the sensor is not null
+                sum += Sensor::getSensorTemperature(sensor); // Use static method to get temperature
+                ++count;                                     // Increment the count of valid sensors
+            }
+        }
+
+        return (count > 0) ? (sum / count) : 0.0f; // Return average temperature or 0.0f if no valid sensors
+    }
+
     // Function to print sensors using Serial
     void printSensors(const std::vector<Sensor *> &sensors, const String &group)
-    {   String s = "";
-        if(sensors.size() > (std::size_t)1)
+    {
+        String s = "";
+        if (sensors.size() > (std::size_t)1)
         {
             s = " sensors are redundant";
         }
@@ -316,31 +539,124 @@ public:
             valve.print();
         }
     }
+
+    void update()
+    {
+        for (Sensor &sensor : sensors)
+        {
+            sensor.update(); // Hívjuk meg a függvényt minden szenzorra
+        }
+
+        // Perform the calculation.
+        heatTransfer.calculateHeatingTransferDirection(tourSensors, retourSensors, 1.0);
+    }
+};
+
+class Kazan : public HeatingElement
+{
+public:
+    Kazan(String name, int retourTempProtValue) : HeatingElement(name) {}
+
+    void checkRetourLowTemperatureProtection()
+    {
+        float retourTemp = getReTourTemperature();
+        if (retourTemp < retourTempProtValue)
+        {
+            Serial.println("Kazán retour védelem aktiválva!");
+        }
+    }
+private:
+    int retourTempProtValue;
+};
+
+class Puffer : public HeatingElement
+{
+public:
+    Puffer(String name) : HeatingElement(name) {}
+
+    // Puffer egyedi vezérlése
+    void moveEnergyToRadiators(float radiatorRequestTemp)
+    {
+    }
+};
+
+class Bojler : public HeatingElement
+{
+public:
+    Bojler(String name) : HeatingElement(name) {}
+
+    // Bojler vezérlése melegvíz igény esetén
+    void manageHotWater(float hotWaterDemandTemp)
+    {
+    }
+};
+
+class Radiator : public HeatingElement
+{
+public:
+    Radiator(String name) : HeatingElement() {}
+
+    // Radiátor egyedi vezérlése
+    void manageHeating(float desiredTemp)
+    {
+    }
 };
 
 // HeatingSystem class (contains the entire system)
 class HeatingSystem
 {
 public:
-    std::vector<HeatingElement> kazan;
-    std::vector<HeatingElement> radiators;
-    std::vector<HeatingElement> puffer;
+    std::vector<HeatingElement *> kazan;
+    std::vector<HeatingElement *> radiators;
+    std::vector<HeatingElement *> puffer;
+    std::vector<HeatingElement *> mergedList;
 
     HeatingSystem() {}
 
-    void addKazan(HeatingElement element)
+    void postInitTasks()
+    {
+    }
+
+    void addKazan(HeatingElement *element)
     {
         kazan.push_back(element);
+        mergedList.push_back(element);
     }
 
-    void addRadiator(HeatingElement element)
+    void addRadiator(HeatingElement *element)
     {
         radiators.push_back(element);
+        mergedList.push_back(element);
     }
 
-    void addPuffer(HeatingElement element)
+    void addPuffer(HeatingElement *element)
     {
         puffer.push_back(element);
+        mergedList.push_back(element);
+    }
+
+    void addHeatingElement(HeatingElement *element, std::string typeString)
+    {
+        HeatingElementType type = elementTypeFromString(typeString);
+        if (type == HeatingElementType::UNKNOWN)
+        {
+            Serial.printf("Unknown Heating System Element type: %s \n", typeString.c_str());
+        }
+        switch (type)
+        {
+        case HeatingElementType::KAZAN:
+            addKazan(element);
+            break;
+        case HeatingElementType::RADIATOR:
+            addRadiator(element);
+            break;
+        case HeatingElementType::PUFER:
+            addPuffer(element);
+            break;
+
+        default:
+            break;
+        }
     }
 
     bool validate()
@@ -352,23 +668,9 @@ public:
             return false;
         }
 
-        for (auto &element : kazan)
+        for (auto &element : mergedList)
         {
-            if (!element.validate())
-                return false;
-        }
-
-        // Validate Radiators (can be empty, but must validate if present)
-        for (auto &element : radiators)
-        {
-            if (!element.validate())
-                return false;
-        }
-
-        // Validate Puffer (can be empty, but must validate if present)
-        for (auto &element : puffer)
-        {
-            if (!element.validate())
+            if (!element->validate())
                 return false;
         }
 
@@ -382,25 +684,35 @@ public:
         Serial.println("  Kazan Elements:");
         for (auto &element : kazan)
         {
-            element.printHeatingElement();
+            element->printHeatingElement();
         }
 
         Serial.println("  Radiator Elements:");
         for (auto &element : radiators)
         {
-            element.printHeatingElement();
+            element->printHeatingElement();
         }
 
         Serial.println("  Puffer Elements:");
         for (auto &element : puffer)
         {
-            element.printHeatingElement();
+            element->printHeatingElement();
+        }
+    }
+
+    void update()
+    {
+        for (HeatingElement *element : mergedList)
+        {
+            element->update();
         }
     }
 };
 
 // Global collection for heating elements
-std::vector<HeatingElement> heatingSystemCollection;
+// std::vector<HeatingElement> heatingSystemCollection;
+
+HeatingSystem hsystem;
 
 // Load JSON configuration from file
 void intiHeatingSystem(const char *filename)
@@ -434,13 +746,38 @@ void intiHeatingSystem(const char *filename)
         for (JsonObject element : elements)
         {
             String name = element["name"];
+            
+
             if (name.isEmpty())
             {
                 Serial.println(F("Error: Name is mandatory for each element."));
                 continue; // Skip this element if name is missing
             }
 
-            HeatingElement heatingElement(name);
+            HeatingElement *heatingElement;
+
+            HeatingElementType type = elementTypeFromString(key);
+            if (type == HeatingElementType::UNKNOWN)
+            {
+                Serial.printf("Unknown Heating System Element type: %s \n", key);
+            }
+
+            switch (type)
+            {
+            case HeatingElementType::KAZAN:
+                int retourTempProtValue = element["retourTempProtValue"];
+                heatingElement = new Kazan(name,retourTempProtValue);
+                break;
+            case HeatingElementType::RADIATOR:
+                heatingElement = new Radiator(name);
+                break;
+            case HeatingElementType::PUFER:
+                heatingElement = new Puffer(name);
+                break;
+
+            default:
+                break;
+            }
 
             // Validate and load sensors
             JsonArray sensors = element["sensors"].as<JsonArray>();
@@ -454,7 +791,7 @@ void intiHeatingSystem(const char *filename)
                 Sensor newSensor(model, position, id);
                 if (newSensor.validate())
                 {
-                    heatingElement.addSensor(newSensor);
+                    heatingElement->addSensor(newSensor);
                 }
                 else
                 {
@@ -464,7 +801,7 @@ void intiHeatingSystem(const char *filename)
             }
             if (isSensorsValid)
             {
-                heatingElement.classifySensors();
+                heatingElement->classifySensors();
             }
 
             // Load pumps (name is mandatory)
@@ -482,9 +819,10 @@ void intiHeatingSystem(const char *filename)
                 int maxControlSig = pump["maxControlSig"];
                 int minControlSig = pump["minControlSig"];
                 String workingMode = pump["workingMode"];
+                int IOnumber = pump["IOnumber"];
 
-                Pump newPump(pumpName, model, maxControlSig, minControlSig, workingMode);
-                heatingElement.addPump(newPump);
+                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode);
+                heatingElement->addPump(newPump);
             }
 
             // Load valves (name is mandatory)
@@ -503,12 +841,41 @@ void intiHeatingSystem(const char *filename)
                 String workingMode = valve["workingMode"];
 
                 Valve newValve(valveName, maxControlSig, minControlSig, workingMode);
-                heatingElement.addValve(newValve);
+                heatingElement->addValve(newValve);
             }
 
             // Add heatingElement to your heating system collection
-            heatingSystemCollection.push_back(heatingElement); // Store the heating element in the collection
-            heatingElement.printHeatingElement();
+            // hsystem.addHeatingElement(heatingElement, keyValue.key().c_str());
+            switch (type)
+            {
+            case HeatingElementType::KAZAN:
+                hsystem.addKazan(heatingElement);
+                break;
+            case HeatingElementType::RADIATOR:
+                hsystem.addRadiator(heatingElement);
+                break;
+            case HeatingElementType::PUFER:
+                hsystem.addPuffer(heatingElement);
+                break;
+
+            default:
+                break;
+            }
+
+            // heatingSystemCollection.push_back(heatingElement); // Store the heating element in the collection
+            heatingElement->printHeatingElement();
         }
+
+        hsystem.postInitTasks();
     }
+}
+
+void updateHeatingSystem()
+{
+    sensors.requestTemperatures();
+
+    /* for (HeatingElement element : heatingSystemCollection)
+     {
+         element.update();
+     }*/
 }

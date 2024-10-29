@@ -2,18 +2,22 @@
 #include <ESP8266WebServerSecure.h>
 #include <ESP8266mDNS.h>
 
+#include <PCA9685.h>
+
 #include "certificates.h"
 #include "config.h"
 #include "temp_sensors.h"
 #include "comon.h"
-#include "HeatingSystemElements/model.h"
+#include "model.h"
 
 // Globális webszerver változó
 ESP8266WebServerSecure server(443);
 const int max_attempts = 10;
 int attempt = 0;
 
-float temperature;
+// I2C címe a PCA9685-nek (alapértelmezett 0x40)
+PCA9685 pwmController;
+
 
 // Hőmérséklet API kezelő
 void handleHeatingRequest()
@@ -43,15 +47,36 @@ void handleHeatingRequest()
 }
 
 // Funkció az újraindításhoz
-void handleReboot() {
-    // Ellenőrizzük a paramétereket
-    if (server.arg("user") == "admin" && server.arg("password") == "password") {
-        server.send(200, "text/plain", "Rebooting..."); // Válasz a kérésre
-        delay(1000); // Várjunk egy kicsit, hogy a válasz eljusson
-        ESP.restart(); // Újraindítás
-    } else {
-        server.send(401, "text/plain", "Unauthorized"); // Jogosulatlan válasz
-    }
+void handleReboot()
+{
+  // Ellenőrizzük a paramétereket
+  if (server.arg("user") == "admin" && server.arg("password") == "password")
+  {
+    server.send(200, "text/plain", "Rebooting..."); // Válasz a kérésre
+    delay(1000);                                    // Várjunk egy kicsit, hogy a válasz eljusson
+    ESP.restart();                                  // Újraindítás
+  }
+  else
+  {
+    server.send(401, "text/plain", "Unauthorized"); // Jogosulatlan válasz
+  }
+}
+
+void writePwmIO(int id, float duty)
+{
+  pwmController.setChannelDutyCycle(id, duty);
+}
+
+void writeIO(int id, bool value)
+{
+  if (value)
+  {
+    pwmController.setChannelDutyCycle(id, 4096);
+  }
+  else
+  {
+    pwmController.setChannelDutyCycle(id, 4096);
+  }
 }
 
 void setup()
@@ -64,7 +89,12 @@ void setup()
   // SPIFFS inicializálása és konfiguráció betöltése
   loadConfig();
 
-  intiHeatingSystem("/config.json"); 
+  Wire.begin(D2, D1); // SDA: D2, SCL: D1 (ESP8266)
+
+  pwmController.setupSingleDevice(Wire, 0x40); // Az alapértelmezett I2C cím: 0x40
+  pwmController.setToServoFrequency();         // Szervómotorokhoz beállított frekvencia
+
+  intiHeatingSystem("/config.json");
   // NTP kliens indítása
   timeClient.begin();
   timeClient.update();
@@ -115,7 +145,6 @@ void setup()
   // Beállítjuk a reboot végpontot
   server.on("/reboot", HTTP_GET, handleReboot);
 
-  
   const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
   // ask server to track these headers
@@ -127,6 +156,7 @@ void setup()
   logMessage("HTTPS szerver indítva.");
   // MDNS.addService("https", "tcp", 443);
 
+  hsystem.printHeatingSystem();
   // Szenzorok inicializálása
   setupSensors();
 }
@@ -135,11 +165,11 @@ void loop()
 {
   server.handleClient();
   timeClient.update();
+  updateHeatingSystem();
 
   // 5 másodperc várakozás
   delay(1000);
-  sensors.requestTemperatures();
-  temperature = sensors.getTempCByIndex(0);
-  //logMessage("Temp: %f", temperature);
-  // MDNS.update();
+
+  // logMessage("Temp: %f", temperature);
+  //  MDNS.update();
 }

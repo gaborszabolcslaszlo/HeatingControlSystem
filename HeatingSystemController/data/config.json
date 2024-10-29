@@ -5,9 +5,10 @@
     "AP_Password": "12345678",
     "WifiMode": "STA+AP",
     "HeatingSystem": {
-        "Kazan": [
+        "KAZAN": [
             {
                 "name": "Kazan",
+                "retourTempProtValue" : 40,
                 "sensors": [
                     {
                         "model": "DS12B20",
@@ -38,7 +39,7 @@
                         "model": "groudfos",
                         "maxControlSig": 100,
                         "minControlSig": 0,
-                        "workingMode": "pwm"
+                        "workingMode": "PWM"
                     }
                 ],
                 "valves": [
@@ -51,7 +52,7 @@
                 ]
             }
         ],
-        "Radiators": [
+        "RADIATOR": [
             {
                 "name": "Radiators",
                 "sensors": [
@@ -79,7 +80,7 @@
                         "model": "groudfos",
                         "maxControlSig": 100,
                         "minControlSig": 0,
-                        "workingMode": "pwm"
+                        "workingMode": "PWM"
                     }
                 ],
                 "valves": [
@@ -92,7 +93,7 @@
                 ]
             }
         ],
-        "Puffer": [
+        "PUFER": [
             {
                 "name": "Puffer1",
                 "sensors": [
@@ -120,7 +121,7 @@
                         "model": "groudfos",
                         "maxControlSig": 100,
                         "minControlSig": 0,
-                        "workingMode": "pwm"
+                        "workingMode": "PWM"
                     }
                 ],
                 "valves": [
