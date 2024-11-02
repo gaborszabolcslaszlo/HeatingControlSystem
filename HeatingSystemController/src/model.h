@@ -6,6 +6,32 @@
 extern void writePwmIO(int id, float duty);
 extern void writeIO(int id, bool value);
 
+// Message Bus class for broadcasting messages
+class MessageBus
+{
+public:
+    // Function to register a listener
+    void subscribe(const String &listenerName, std::function<void(const std::string &)> callback)
+    {
+        listeners[listenerName.c_str()] = callback;
+    }
+
+    // Function to broadcast a message to all listeners
+    void broadcast(const std::string &senderName, std::string message)
+    {
+        for (const auto &listener : listeners)
+        {
+            if (listener.first != senderName)
+            { // Avoid sending the message back to the sender
+                listener.second(message);
+            }
+        }
+    }
+
+private:
+    std::unordered_map<std::string, std::function<void(const std::string &)>> listeners;
+};
+
 // Print function for the entire heating system
 void printHeatingSystemConfig();
 
@@ -370,6 +396,7 @@ class HeatingElement
 {
 public:
     String name;
+    bool isActive; // Állapotjelző, hogy az elem éppen aktív-e
     std::vector<Sensor> sensors;
     std::vector<Pump> pumps;
     std::vector<Valve> valves;
@@ -380,11 +407,33 @@ public:
 
     HeatingTransfer heatTransfer;
 
-    HeatingElement() {}
-
-    HeatingElement(String name)
+    HeatingElement(MessageBus &bus, const String name) : messageBus(bus), name(name), isActive(false), needHeating(false)
     {
-        this->name = name;
+        messageBus.subscribe(name, [this](const std::string &msg)
+                             { this->onMessageReceived(msg); });
+    }
+
+    void activatePump()
+    {
+    }
+
+    void deactivatePump()
+    {
+    }
+
+    void activate()
+    {
+        isActive = true; // Aktiválás
+    }
+
+    void deactivate()
+    {
+        isActive = false; // Deaktiválás
+    }
+
+    bool getIsActive() const
+    {
+        return isActive; // Visszaadja, hogy az elem aktív-e
     }
 
     void addSensor(Sensor sensor)
@@ -412,6 +461,17 @@ public:
         return calculateAverageTemperature(retourSensors);
     }
 
+    float getBodyTemperature()
+    {
+        if (bodySensors.size() > 0)
+        {
+            return calculateAverageTemperature(bodySensors);
+        }
+        else
+        {
+            return getTourTemperature();
+        }
+    }
     // Function to classify sensors based on their position
     void classifySensors()
     {
@@ -433,7 +493,7 @@ public:
         }
     }
 
-        // Helper function to calculate average temperature from a list of sensors
+    // Helper function to calculate average temperature from a list of sensors
     float calculateAverageTemperature(const std::vector<Sensor *> &sensors)
     {
         float sum = 0.0f;
@@ -550,40 +610,104 @@ public:
         // Perform the calculation.
         heatTransfer.calculateHeatingTransferDirection(tourSensors, retourSensors, 1.0);
     }
+
+    virtual bool canSupplyHeat(HeatingElement *element)
+    {
+        double forwardTemp = getTourTemperature();     // Kazán előremenő hőmérséklete
+        double returnTemp = element->getReTourTemperature(); // Elem visszatérő hőmérséklete
+
+        double minTempDifference = 5.0; // Például, minimum 5 °C különbség szükséges
+
+        // Ha a különbség az előremenő és visszatérő hőmérséklet között elég nagy, akkor még tud hőt biztosítani
+        if ((forwardTemp - returnTemp) > minTempDifference)
+        {
+            return true; // Kazán tud még hőt biztosítani
+        }
+
+        return false; // A hőmérsékletkülönbség túl kicsi, a fűtési elem már nem tud több hőt felvenni
+    }
+
+    bool needsHeating()
+    {
+        return needHeating;
+    }
+
+private:
+    bool needHeating;
+    MessageBus &messageBus;
+    virtual void onMessageReceived(const std::string &message)
+    {
+    }
 };
 
 class Kazan : public HeatingElement
 {
 public:
-    Kazan(String name, int retourTempProtValue) : HeatingElement(name) {}
+    Kazan(MessageBus &bus, String name, float retourTempProtValue, float tourTempProtValue) : HeatingElement(bus, name.c_str())
+    {
+        Serial.println("Kazán Obiektum!!!!");
+    }
 
     void checkRetourLowTemperatureProtection()
     {
+        float tourTemp = getTourTemperature();
         float retourTemp = getReTourTemperature();
+        if (tourTemp > retourTempProtValue)
+        {
+            Serial.println("Kazán tulmelegedes védelem aktiválva!");
+        }
         if (retourTemp < retourTempProtValue)
         {
             Serial.println("Kazán retour védelem aktiválva!");
         }
     }
+
+    void onMessageReceived(const std::string &message) override
+    {
+        Serial.println(message.c_str());
+    }
+
 private:
-    int retourTempProtValue;
+    float retourTempProtValue;
+    float tourTempProtValue;
 };
 
 class Puffer : public HeatingElement
 {
 public:
-    Puffer(String name) : HeatingElement(name) {}
+    Puffer(MessageBus &bus, String name) : HeatingElement(bus, name.c_str()) {}
 
     // Puffer egyedi vezérlése
     void moveEnergyToRadiators(float radiatorRequestTemp)
     {
+    }
+
+    bool hasStoredEnergy()
+    {
+        return getBodyTemperature() > 30; // Van tárolt energia, ha a hőmérséklet magasabb, mint a minimum
+    }
+
+    bool canSupplyHeat(HeatingElement *element) override
+    {
+        double bodyTemp = this->getBodyTemperature();        // Kazán előremenő hőmérséklete
+        double returnTemp = element->getReTourTemperature(); // Elem visszatérő hőmérséklete
+
+        double minTempDifference = 5.0; // Például, minimum 5 °C különbség szükséges
+
+        // Ha a különbség az előremenő és visszatérő hőmérséklet között elég nagy, akkor még tud hőt biztosítani
+        if ((bodyTemp - returnTemp) > minTempDifference)
+        {
+            return true; // Kazán tud még hőt biztosítani
+        }
+
+        return false; // A hőmérsékletkülönbség túl kicsi, a fűtési elem már nem tud több hőt felvenni
     }
 };
 
 class Bojler : public HeatingElement
 {
 public:
-    Bojler(String name) : HeatingElement(name) {}
+    Bojler(MessageBus &bus, String name) : HeatingElement(bus, name.c_str()) {}
 
     // Bojler vezérlése melegvíz igény esetén
     void manageHotWater(float hotWaterDemandTemp)
@@ -594,7 +718,7 @@ public:
 class Radiator : public HeatingElement
 {
 public:
-    Radiator(String name) : HeatingElement() {}
+    Radiator(MessageBus &bus, String name) : HeatingElement(bus, name.c_str()) {}
 
     // Radiátor egyedi vezérlése
     void manageHeating(float desiredTemp)
@@ -610,6 +734,8 @@ public:
     std::vector<HeatingElement *> radiators;
     std::vector<HeatingElement *> puffer;
     std::vector<HeatingElement *> mergedList;
+
+    std::vector<HeatingElement *> heatingPriorityList;
 
     HeatingSystem() {}
 
@@ -627,12 +753,14 @@ public:
     {
         radiators.push_back(element);
         mergedList.push_back(element);
+        heatingPriorityList.push_back(element);
     }
 
     void addPuffer(HeatingElement *element)
     {
         puffer.push_back(element);
         mergedList.push_back(element);
+        heatingPriorityList.push_back(element);
     }
 
     void addHeatingElement(HeatingElement *element, std::string typeString)
@@ -707,12 +835,43 @@ public:
             element->update();
         }
     }
+
+    void controlHeatingSystem(HeatingElement *kazan)
+    {
+        for (HeatingElement *elem : heatingPriorityList)
+        {
+            if (kazan->getIsActive())
+            {
+                if (kazan->canSupplyHeat(elem) && elem->needsHeating())
+                {
+                    elem->activatePump();
+                }
+                else
+                {
+                    continue; // Tovább lép a következő elemre
+                }
+            }
+            else
+            {
+                for (HeatingElement *actPuffer : puffer)
+                {
+                    Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
+                    if (pufferPtr->hasStoredEnergy() && elem->needsHeating() && pufferPtr->canSupplyHeat(elem) )
+                    {
+                        elem->activatePump();
+                        pufferPtr->activatePump();
+                    }
+                }
+            }
+        }
+    }
 };
 
 // Global collection for heating elements
 // std::vector<HeatingElement> heatingSystemCollection;
 
 HeatingSystem hsystem;
+MessageBus messageBus;
 
 // Load JSON configuration from file
 void intiHeatingSystem(const char *filename)
@@ -746,7 +905,6 @@ void intiHeatingSystem(const char *filename)
         for (JsonObject element : elements)
         {
             String name = element["name"];
-            
 
             if (name.isEmpty())
             {
@@ -765,16 +923,22 @@ void intiHeatingSystem(const char *filename)
             switch (type)
             {
             case HeatingElementType::KAZAN:
-                int retourTempProtValue = element["retourTempProtValue"];
-                heatingElement = new Kazan(name,retourTempProtValue);
+            {
+                float retourTempProtValue = element["retourTempProtValue"];
+                float tourTempProtValue = element["tourTempProtValue"];
+                heatingElement = new Kazan(messageBus, name, retourTempProtValue, tourTempProtValue);
                 break;
+            }
             case HeatingElementType::RADIATOR:
-                heatingElement = new Radiator(name);
+            {
+                heatingElement = new Radiator(messageBus, name);
                 break;
+            }
             case HeatingElementType::PUFER:
-                heatingElement = new Puffer(name);
+            {
+                heatingElement = new Puffer(messageBus, name);
                 break;
-
+            }
             default:
                 break;
             }

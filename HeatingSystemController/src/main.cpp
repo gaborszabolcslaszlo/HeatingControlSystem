@@ -166,6 +166,7 @@ void loop()
   server.handleClient();
   timeClient.update();
   updateHeatingSystem();
+  hsystem.update();
 
   // 5 másodperc várakozás
   delay(1000);
