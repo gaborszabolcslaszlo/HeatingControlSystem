@@ -8,24 +8,24 @@
         "KAZAN": [
             {
                 "name": "Kazan",
-                "retourTempProtValue" : 40.0,
-                "tourTempProtValue" : 80.0,
-                "activationThreshold" : 30.0,
+                "retourTempProtValue": 40.0,
+                "tourTempProtValue": 80.0,
+                "activationThreshold": 30.0,
                 "sensors": [
                     {
                         "model": "DS12B20",
                         "position": "body",
-                        "id": "28-000007602b91"
+                        "id": "K0Body0"
                     },
                     {
                         "model": "DS12B20",
                         "position": "tour",
-                        "id": "28-000007602b92"
+                        "id": "K0Tour0"
                     },
                     {
                         "model": "DS12B20",
                         "position": "retour",
-                        "id": "28-000007602b93"
+                        "id": "K0Retour0"
                     }
                 ],
                 "pumps": [
@@ -35,7 +35,7 @@
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "ON/OFF",
-                        "IOnumber" : 1
+                        "IOnumber": 1
                     },
                     {
                         "name": "mainalternativ",
@@ -43,7 +43,7 @@
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "PWM",
-                        "IOnumber" : 2
+                        "IOnumber": 2
                     }
                 ],
                 "valves": [
@@ -63,12 +63,12 @@
                     {
                         "model": "DS12B20",
                         "position": "retour",
-                        "id": "28-000007602b94"
+                        "id": "R0Retour0"
                     },
                     {
                         "model": "DS12B20",
                         "position": "tour",
-                        "id": "28-000007602b95"
+                        "id": "R0Tour0"
                     }
                 ],
                 "pumps": [
@@ -78,7 +78,7 @@
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "ON/OFF",
-                        "IOnumber" : 3
+                        "IOnumber": 3
                     },
                     {
                         "name": "mainalternativ",
@@ -86,7 +86,7 @@
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "PWM",
-                        "IOnumber" : 4
+                        "IOnumber": 4
                     }
                 ],
                 "valves": [
@@ -106,12 +106,17 @@
                     {
                         "model": "DS12B20",
                         "position": "body",
-                        "id": "28-000007602b96"
+                        "id": "P0Body0"
                     },
                     {
                         "model": "DS12B20",
                         "position": "body",
-                        "id": "28-000007602b97"
+                        "id": "R0Retour0"
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "R0Tour0"
                     }
                 ],
                 "pumps": [
@@ -121,7 +126,7 @@
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "ON/OFF",
-                        "IOnumber" : 5
+                        "IOnumber": 5
                     },
                     {
                         "name": "mainalternativ",
@@ -129,7 +134,7 @@
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "PWM",
-                        "IOnumber" : 6
+                        "IOnumber": 6
                     }
                 ],
                 "valves": [

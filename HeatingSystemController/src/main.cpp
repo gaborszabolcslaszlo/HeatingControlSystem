@@ -6,9 +6,11 @@
 
 #include "certificates.h"
 #include "config.h"
+
 #include "temp_sensors.h"
-#include "comon.h"
-#include "model.h"
+#include "HeatingSystemElements/model.h"
+
+#include <GDBStub.h>
 
 // Globális webszerver változó
 ESP8266WebServerSecure server(443);
@@ -17,7 +19,6 @@ int attempt = 0;
 
 // I2C címe a PCA9685-nek (alapértelmezett 0x40)
 PCA9685 pwmController;
-
 
 // Hőmérséklet API kezelő
 void handleHeatingRequest()
@@ -62,20 +63,20 @@ void handleReboot()
   }
 }
 
-void writePwmIO(int id, float duty)
+void writePwmIO(int id, int duty)
 {
-  pwmController.setChannelDutyCycle(id, duty);
+  pwmController.setChannelDutyCycle(id, duty * 4096 / 100);
 }
 
-void writeIO(int id, bool value)
+void writeIO(int id, int value)
 {
-  if (value)
+  if (value > 0)
   {
     pwmController.setChannelDutyCycle(id, 4096);
   }
   else
   {
-    pwmController.setChannelDutyCycle(id, 4096);
+    pwmController.setChannelDutyCycle(id, 0);
   }
 }
 
@@ -84,6 +85,7 @@ void setup()
   // Soros port inicializálása
   Serial.begin(115200);
   delay(500);
+  gdbstub_init();
   Serial.println();
   logMessage("Start");
   // SPIFFS inicializálása és konfiguráció betöltése

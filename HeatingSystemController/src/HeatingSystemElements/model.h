@@ -2,9 +2,16 @@
 #include <ArduinoJson.h>
 #include <FS.h> // SPIFFS for file handling on ESP8266
 #include <string>
+#include <map>
 
-extern void writePwmIO(int id, float duty);
-extern void writeIO(int id, bool value);
+#include <temp_sensors.h>
+
+extern void writePwmIO(int id, int duty);
+extern void writeIO(int id, int value);
+
+#ifdef PIO_UNIT_TESTING
+extern std::map<std::string, float> mockSensorValues;
+#endif
 
 // Message Bus class for broadcasting messages
 class MessageBus
@@ -221,7 +228,16 @@ public:
 
     void update()
     {
+#ifdef PIO_UNIT_TESTING
+        // If SENSORS_MOCK is defined, use the mock list
+
+        float value = mockSensorValues[id.c_str()]; // Use the mock value
+        // Serial.println("Mock sensor value: " + String(value));
+        setTemperature(value);
+
+#else
         setTemperature(sensors.getTempC(reinterpret_cast<const uint8_t *>(id.c_str())));
+#endif
     }
 
 private:
@@ -308,7 +324,7 @@ public:
     }
 
 private:
-    int controlSignal = 0;
+    int controlSignal;
 };
 
 // Valve class
@@ -415,19 +431,31 @@ public:
 
     void activatePump()
     {
+        for (Pump &pump : pumps)
+        {
+            pump.setControlSignal(100); // Hívjuk meg a függvényt minden szenzorra
+        }
     }
 
     void deactivatePump()
     {
+        for (Pump &pump : pumps)
+        {
+            pump.setControlSignal(0); // Hívjuk meg a függvényt minden szenzorra
+        }
     }
 
     void activate()
     {
+        Serial.printf("Element active, name: %s \n", name);
+        activatePump();
         isActive = true; // Aktiválás
     }
 
     void deactivate()
     {
+        Serial.printf("Element deactive, name: %s \n", name);
+        deactivatePump();
         isActive = false; // Deaktiválás
     }
 
@@ -463,14 +491,17 @@ public:
 
     float getBodyTemperature()
     {
+        float f;
         if (bodySensors.size() > 0)
         {
-            return calculateAverageTemperature(bodySensors);
+            f = calculateAverageTemperature(bodySensors);
         }
         else
         {
-            return getTourTemperature();
+            f = getTourTemperature();
         }
+        // Serial.printf("body temp[C], name: %s, value: %f\n", name, f);
+        return f;
     }
     // Function to classify sensors based on their position
     void classifySensors()
@@ -607,13 +638,18 @@ public:
             sensor.update(); // Hívjuk meg a függvényt minden szenzorra
         }
 
+        for (Pump &pump : pumps)
+        {
+            pump.update(); // Hívjuk meg a függvényt minden szenzorra
+        }
+
         // Perform the calculation.
         heatTransfer.calculateHeatingTransferDirection(tourSensors, retourSensors, 1.0);
     }
 
     virtual bool canSupplyHeat(HeatingElement *element)
     {
-        double forwardTemp = getTourTemperature();     // Kazán előremenő hőmérséklete
+        double forwardTemp = getTourTemperature();           // Kazán előremenő hőmérséklete
         double returnTemp = element->getReTourTemperature(); // Elem visszatérő hőmérséklete
 
         double minTempDifference = 5.0; // Például, minimum 5 °C különbség szükséges
@@ -621,16 +657,16 @@ public:
         // Ha a különbség az előremenő és visszatérő hőmérséklet között elég nagy, akkor még tud hőt biztosítani
         if ((forwardTemp - returnTemp) > minTempDifference)
         {
+            Serial.printf("Source %s can trnasfer heat to %s", name, element->name);
             return true; // Kazán tud még hőt biztosítani
         }
 
+        Serial.printf("Source %s can't trnasfer heat to %s", name, element->name);
         return false; // A hőmérsékletkülönbség túl kicsi, a fűtési elem már nem tud több hőt felvenni
     }
 
-    bool needsHeating()
-    {
-        return needHeating;
-    }
+    bool getNeedHeating() const { return needHeating; }
+    void setNeedHeating(bool needHeating_) { needHeating = needHeating_; }
 
 private:
     bool needHeating;
@@ -643,22 +679,54 @@ private:
 class Kazan : public HeatingElement
 {
 public:
-    Kazan(MessageBus &bus, String name, float retourTempProtValue, float tourTempProtValue) : HeatingElement(bus, name.c_str())
+    Kazan(MessageBus &bus, String name, float retourTempProtValue, float tourTempProtValue, float activationThreshold) : HeatingElement(bus, name.c_str())
     {
         Serial.println("Kazán Obiektum!!!!");
+        this->retourTempProtValue = retourTempProtValue;
+        this->tourTempProtValue = tourTempProtValue;
+        this->activationThreshold = activationThreshold;
     }
 
     void checkRetourLowTemperatureProtection()
     {
         float tourTemp = getTourTemperature();
         float retourTemp = getReTourTemperature();
-        if (tourTemp > retourTempProtValue)
+        if (getBodyTemperature() > tourTempProtValue)
         {
             Serial.println("Kazán tulmelegedes védelem aktiválva!");
+            isOverHeatProtectionActive = true;
         }
-        if (retourTemp < retourTempProtValue)
+        else
+        {
+            isOverHeatProtectionActive = false;
+        }
+
+        if (!isRetourProtectionActive && retourTemp < (retourTempProtValue - retourTempProtValue * 0.05))
         {
             Serial.println("Kazán retour védelem aktiválva!");
+            isRetourProtectionActive = true;
+        }
+        else if (isRetourProtectionActive && retourTemp > (retourTempProtValue + retourTempProtValue * 0.05))
+        {
+            isRetourProtectionActive = false;
+        }
+
+        if (getTourTemperature() < getReTourTemperature() * 1.05)
+        {
+            deactivate();
+        }
+    }
+
+    void checkIsActive()
+    {
+        getBodyTemperature();
+        if (getBodyTemperature() > activationThreshold)
+        {
+            activate();
+        }
+        else
+        {
+            deactivate();
         }
     }
 
@@ -667,9 +735,25 @@ public:
         Serial.println(message.c_str());
     }
 
+    void update()
+    {
+        checkIsActive();
+        checkRetourLowTemperatureProtection();
+        HeatingElement::update();
+    }
+
+    bool getIsOverHeatProtectionActive() const { return isOverHeatProtectionActive; }
+    void setIsOverHeatProtectionActive(bool isOverHeatProtectionActive_) { isOverHeatProtectionActive = isOverHeatProtectionActive_; }
+
+    bool getIsRetourProtectionActive() const { return isRetourProtectionActive; }
+    void setIsRetourProtectionActive(bool isRetourProtectionActive_) { isRetourProtectionActive = isRetourProtectionActive_; }
+
 private:
     float retourTempProtValue;
     float tourTempProtValue;
+    float activationThreshold;
+    bool isRetourProtectionActive;
+    bool isOverHeatProtectionActive;
 };
 
 class Puffer : public HeatingElement
@@ -723,6 +807,15 @@ public:
     // Radiátor egyedi vezérlése
     void manageHeating(float desiredTemp)
     {
+    }
+
+    void update()
+    {
+        HeatingElement::update();
+        if (getTourTemperature() < 50)
+        {
+            deactivate();
+        }
     }
 };
 
@@ -830,36 +923,79 @@ public:
 
     void update()
     {
+
         for (HeatingElement *element : mergedList)
         {
             element->update();
+        }
+
+        for (HeatingElement *element : kazan)
+        {
+            Kazan *kazanPtr = static_cast<Kazan *>(element);
+            kazanPtr->update();
+        }
+
+        controlHeatingSystem(kazan[0]);
+
+        for (HeatingElement *element : mergedList)
+        {
+            element->update();
+        }
+
+        for (HeatingElement *element : kazan)
+        {
+            Kazan *kazanPtr = static_cast<Kazan *>(element);
+            kazanPtr->update();
         }
     }
 
     void controlHeatingSystem(HeatingElement *kazan)
     {
+        Kazan *kazanPtr = static_cast<Kazan *>(kazan);
         for (HeatingElement *elem : heatingPriorityList)
         {
-            if (kazan->getIsActive())
+            if (kazanPtr->getIsOverHeatProtectionActive())
             {
-                if (kazan->canSupplyHeat(elem) && elem->needsHeating())
-                {
-                    elem->activatePump();
-                }
-                else
-                {
-                    continue; // Tovább lép a következő elemre
-                }
+                elem->activatePump();
             }
             else
             {
-                for (HeatingElement *actPuffer : puffer)
+                if (kazanPtr->getIsActive())
                 {
-                    Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
-                    if (pufferPtr->hasStoredEnergy() && elem->needsHeating() && pufferPtr->canSupplyHeat(elem) )
+                    if (kazanPtr->getIsRetourProtectionActive())
                     {
-                        elem->activatePump();
-                        pufferPtr->activatePump();
+                        elem->deactivatePump();
+                    }
+                    else
+                    {
+                        if (kazan->canSupplyHeat(elem) && elem->getNeedHeating())
+                        {
+                            elem->activate();
+                        }
+                        else
+                        {
+                            continue; // Tovább lép a következő elemre
+                        }
+                    }
+                }
+                else
+                {
+                    bool isOneElement = false;
+                    for (HeatingElement *actPuffer : puffer)
+                    {
+                        Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
+                        if (pufferPtr->hasStoredEnergy() && elem->getNeedHeating() && pufferPtr->canSupplyHeat(elem))
+                        {
+                            Serial.printf("Pufferbol futes activ: %s\n", elem->name);
+                            elem->activate();
+                            pufferPtr->activate();
+                            isOneElement = true;
+                        }
+                        else if (!pufferPtr->hasStoredEnergy() || !elem->getNeedHeating() || !pufferPtr->canSupplyHeat(elem))
+                        {
+                            elem->deactivate();
+                            pufferPtr->deactivate();
+                        }
                     }
                 }
             }
@@ -926,7 +1062,8 @@ void intiHeatingSystem(const char *filename)
             {
                 float retourTempProtValue = element["retourTempProtValue"];
                 float tourTempProtValue = element["tourTempProtValue"];
-                heatingElement = new Kazan(messageBus, name, retourTempProtValue, tourTempProtValue);
+                float activationThreshold = element["activationThreshold"];
+                heatingElement = new Kazan(messageBus, name, retourTempProtValue, tourTempProtValue, activationThreshold);
                 break;
             }
             case HeatingElementType::RADIATOR:
@@ -1036,7 +1173,9 @@ void intiHeatingSystem(const char *filename)
 
 void updateHeatingSystem()
 {
+#ifndef PIO_UNIT_TESTING
     sensors.requestTemperatures();
+#endif
 
     /* for (HeatingElement element : heatingSystemCollection)
      {
