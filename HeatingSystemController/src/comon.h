@@ -5,7 +5,7 @@
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 
-extern ESP8266WebServerSecure server;
+extern ESP8266WebServer server;
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 600000); // 1 órás időeltolás (3600 másodperc), 600 másodpercenként frissít

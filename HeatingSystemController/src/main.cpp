@@ -1,6 +1,7 @@
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServerSecure.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include <exception>
 
 #include <PCA9685.h>
 
@@ -13,7 +14,7 @@
 #include <GDBStub.h>
 
 // Globális webszerver változó
-ESP8266WebServerSecure server(443);
+ESP8266WebServer server(80);
 const int max_attempts = 10;
 int attempt = 0;
 
@@ -84,6 +85,7 @@ void setup()
 {
   // Soros port inicializálása
   Serial.begin(115200);
+  Serial.flush();
   delay(500);
   gdbstub_init();
   Serial.println();
@@ -134,23 +136,35 @@ void setup()
     logMessage("AP IP: %s", WiFi.softAPIP());
   }
 
+  server.keepAlive(true);
+  server.enableCORS(true);
   // HTTPS beállítása
-  server.getServer().setRSACert(new X509List(cert), new PrivateKey(private_key));
+  // server.getServer()
+  // .setRSACert(new X509List(cert), new PrivateKey(private_key));
+
+  // CORS fejléc beállítása
+  server.on("/configuration", HTTP_OPTIONS, []()
+            {
+  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.send(200); });
 
   // API végpontok
-  server.on("/heatingRequest", handleHeatingRequest);
+  server.on("/heatingRequest", HTTP_GET, handleHeatingRequest);
   server.on("/logs", HTTP_GET, handleLogs);
   server.on("/configuration", HTTP_GET, handleConfiguration);
-  server.on("/configuration", HTTP_POST, handleConfiguration);
-  server.on("/upload", HTTP_POST, []()
-            { server.send(200, "text/plain", "File Uploaded Successfully"); }, handleFileUpload);
+  // server.on("/configuration", HTTP_POST, handleConfiguration);
+  // server.on("/upload", HTTP_POST, []()
+  /* {
+     server.send(200, "text/plain", "File Uploaded Successfully");
+   }, handleFileUpload);*/
   // Beállítjuk a reboot végpontot
-  server.on("/reboot", HTTP_GET, handleReboot);
+  // server.on("/reboot", HTTP_GET, handleReboot);
 
   const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
   // ask server to track these headers
-  server.collectHeaders(headerkeys, headerkeyssize);
+  // server.collectHeaders(headerkeys, headerkeyssize);
 
   // Webszerver indítása
   // MDNS.begin("kazan");
@@ -165,13 +179,24 @@ void setup()
 
 void loop()
 {
-  server.handleClient();
-  timeClient.update();
-  updateHeatingSystem();
-  hsystem.update();
+  try
+  {
+    // A kód, amely hibát okozhat
+    server.handleClient();
+  }
+  catch (const std::exception &e)
+  {
+    // Hiba kezelése
+    Serial.println("Kivétel történt:");
+    Serial.println(e.what());
+  }
+
+  // timeClient.update();
+  // updateHeatingSystem();
+  // hsystem.update();
 
   // 5 másodperc várakozás
-  delay(1000);
+  delay(3000);
 
   // logMessage("Temp: %f", temperature);
   //  MDNS.update();

@@ -447,14 +447,14 @@ public:
 
     void activate()
     {
-        Serial.printf("Element active, name: %s \n", name);
+        // Serial.printf("Element active, name: %s \n", name);
         activatePump();
         isActive = true; // Aktiválás
     }
 
     void deactivate()
     {
-        Serial.printf("Element deactive, name: %s \n", name);
+        // Serial.printf("Element deactive, name: %s \n", name);
         deactivatePump();
         isActive = false; // Deaktiválás
     }
@@ -1175,6 +1175,7 @@ void updateHeatingSystem()
 {
 #ifndef PIO_UNIT_TESTING
     sensors.requestTemperatures();
+    Serial.printf(">");
 #endif
 
     /* for (HeatingElement element : heatingSystemCollection)
