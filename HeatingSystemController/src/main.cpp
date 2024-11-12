@@ -291,6 +291,15 @@ void setup()
 
 void loop()
 {
+  if (config.wifiMode == "STA+AP" || config.wifiMode == "STA")
+  {
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      Serial.print("Csatlakozás a WiFi-hez...");
+      WiFi.begin(config.wifiSSID, config.wifiPassword); // Próbálkozzunk csatlakozni
+    }
+  }
+
   try
   {
     // A kód, amely hibát okozhat

@@ -237,6 +237,25 @@ public:
         temperature = temp + offset;
     }
 
+#ifdef RNADOM_DATA
+    float generateSineWave()
+    {
+        static float angle = 0;
+
+        // A szinuszos hullám kiszámítása
+        float sineValue = sin(angle) * 100;
+
+        // A következő szög kiszámítása
+        angle += (2 * PI * 1) / 100;
+        if (angle > 2 * PI)
+        {
+            angle -= 2 * PI; // Biztosítjuk, hogy az érték a 0 és 2π között maradjon
+        }
+
+        return sineValue;
+    }
+#endif
+
     void update()
     {
 #ifdef PIO_UNIT_TESTING
@@ -246,10 +265,15 @@ public:
         // Serial.println("Mock sensor value: " + String(value));
         setTemperature(value);
         SensorsValue[id.c_str()] = getTemperature();
-
+#else
+#ifdef RNADOM_DATA
+        float value = generateSineWave();
+        setTemperature(value);
+        SensorsValue[id.c_str()] = getTemperature();
 #else
         setTemperature(sensors.getTempC(reinterpret_cast<const uint8_t *>(id.c_str())));
         SensorsValue[id.c_str()] = getTemperature();
+#endif
 #endif
     }
 
