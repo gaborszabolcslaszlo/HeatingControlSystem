@@ -183,6 +183,9 @@ public:
     SensorPosition position; // Change position type to enum
     String id;
     float temperature;
+    static std::map<std::string, float> SensorsValue;
+
+    Sensor() {}
 
     Sensor(const String &model, SensorPosition position, const String &id)
         : model(model), position(position), id(id) {}
@@ -234,9 +237,11 @@ public:
         float value = mockSensorValues[id.c_str()]; // Use the mock value
         // Serial.println("Mock sensor value: " + String(value));
         setTemperature(value);
+        SensorsValue[id.c_str()] = getTemperature();
 
 #else
         setTemperature(sensors.getTempC(reinterpret_cast<const uint8_t *>(id.c_str())));
+        SensorsValue[id.c_str()] = getTemperature();
 #endif
     }
 
@@ -830,6 +835,8 @@ public:
 
     std::vector<HeatingElement *> heatingPriorityList;
 
+    std::map<std::string, float> *ptrSensorsValue;
+
     HeatingSystem() {}
 
     void postInitTasks()
@@ -1164,7 +1171,7 @@ void intiHeatingSystem(const char *filename)
             }
 
             // heatingSystemCollection.push_back(heatingElement); // Store the heating element in the collection
-            heatingElement->printHeatingElement();
+            // heatingElement->printHeatingElement();
         }
 
         hsystem.postInitTasks();
