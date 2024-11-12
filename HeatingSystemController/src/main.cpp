@@ -318,12 +318,9 @@ void loop()
   if (isAuthenticated && isDataNew)
   {
     static unsigned long lastSendTime = 0;
-    if (millis() - lastSendTime > 5000)
-    {
-      lastSendTime = millis();
-      isDataNew = false;
-      String data = IOMapToJson(IOMap, Sensor::SensorsValue);
-      webSocket.broadcastTXT(data);
-    }
+
+    isDataNew = false;
+    String data = IOMapToJson(IOMap, Sensor::SensorsValue);
+    webSocket.broadcastTXT(data);
   }
 }

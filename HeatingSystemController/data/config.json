@@ -63,7 +63,8 @@
                     {
                         "model": "DS12B20",
                         "position": "retour",
-                        "id": "28-000007602b94"
+                        "id": "28-000007602b94",
+                        "offset": 0.1
                     },
                     {
                         "model": "DS12B20",

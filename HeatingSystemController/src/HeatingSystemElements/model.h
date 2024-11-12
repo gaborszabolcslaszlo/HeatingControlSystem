@@ -184,11 +184,14 @@ public:
     String id;
     float temperature;
     static std::map<std::string, float> SensorsValue;
+    float offset;
 
     Sensor() {}
 
-    Sensor(const String &model, SensorPosition position, const String &id)
-        : model(model), position(position), id(id) {}
+    Sensor(const String &model, SensorPosition position, const String &id, float offset)
+        : model(model), position(position), id(id), offset(offset)
+    {
+    }
 
     void print() const
     {
@@ -199,6 +202,11 @@ public:
         Serial.print(positionToString(position));
         Serial.print(", ID: ");
         Serial.println(id);
+        if (offset != 0.0)
+        {
+            Serial.print(", Offset: ");
+            Serial.println(offset);
+        }
     }
 
     bool validate() const
@@ -226,7 +234,7 @@ public:
     // Setter for temperature.
     void setTemperature(float temp)
     {
-        temperature = temp;
+        temperature = temp + offset;
     }
 
     void update()
@@ -1095,8 +1103,16 @@ void intiHeatingSystem(const char *filename)
                 String model = sensor["model"];
                 SensorPosition position = stringToPosition(sensor["position"]);
                 String id = sensor["id"];
-
-                Sensor newSensor(model, position, id);
+                float offset;
+                if (sensor.containsKey("offset"))
+                {
+                    offset = sensor["offset"];
+                }
+                else
+                {
+                    offset = 0.0;
+                }
+                Sensor newSensor(model, position, id, offset);
                 if (newSensor.validate())
                 {
                     heatingElement->addSensor(newSensor);
