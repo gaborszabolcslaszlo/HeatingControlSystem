@@ -10,22 +10,24 @@
                 "name": "Kazan",
                 "retourTempProtValue": 40.0,
                 "tourTempProtValue": 80.0,
-                "activationThreshold": 30.0,
+                "activationThreshold": 20.0,
                 "sensors": [
                     {
                         "model": "DS12B20",
                         "position": "body",
-                        "id": "28-000007602b91"
+                        "id": "28C6D394000000CC"
                     },
                     {
                         "model": "DS12B20",
                         "position": "tour",
-                        "id": "28-000007602b92"
+                        "id": "28AEA743D4C27A7F",
+                        "offset": -1
                     },
                     {
                         "model": "DS12B20",
                         "position": "retour",
-                        "id": "28-000007602b93"
+                        "id": "2832B643D42F2A25",
+                        "offset": -1.5
                     }
                 ],
                 "pumps": [

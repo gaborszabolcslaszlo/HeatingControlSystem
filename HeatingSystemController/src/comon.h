@@ -4,6 +4,7 @@
 #define COMON_H
 #include <WiFiUdp.h>
 #include <NTPClient.h>
+#include <ESP8266WebServer.h>
 
 extern ESP8266WebServer server;
 

@@ -42,6 +42,22 @@ void printAddress(DeviceAddress deviceAddress)
   Serial.println();
 }
 
+// String cím konvertálása DeviceAddress típusú címre
+bool stringToDeviceAddress(String address, DeviceAddress &deviceAddress)
+{
+  int i = 0;
+  // A címben szereplő kötőjeleket eltávolítjuk
+  address.replace("-", "");
+
+  // Hexadecimális karakterek átalakítása byte-okba
+  for (i = 0; i < 8; i++)
+  {
+    String byteString = address.substring(i * 2, i * 2 + 2);       // Két karakter egy byte-nak
+    deviceAddress[i] = (byte)strtol(byteString.c_str(), NULL, 16); // Hex -> byte
+  }
+  return true;
+}
+
 // Szenzorok inicializálása és ellenőrzése
 void setupSensors()
 {
@@ -51,6 +67,8 @@ void setupSensors()
 
   // Keressük meg az összes csatlakoztatott DS18B20 szenzort
   sensorCount = sensors.getDeviceCount();
+
+  sensors.setResolution(9);
 
   if (sensorCount == 0)
   {

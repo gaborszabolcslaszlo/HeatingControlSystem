@@ -23,7 +23,7 @@ const char *websocketPassword = "secretpassword";
 
 bool isAuthenticated = false;
 
-const int max_attempts = 10;
+const int max_attempts = 1;
 int attempt = 0;
 
 bool isDataNew = false;
@@ -195,7 +195,7 @@ void setup()
 
   Wire.begin(D2, D1); // SDA: D2, SCL: D1 (ESP8266)
 
-  pwmController.setupSingleDevice(Wire, 0x40); // Az alapértelmezett I2C cím: 0x40
+  pwmController.setupSingleDevice(Wire, 0x41); // Az alapértelmezett I2C cím: 0x40
   pwmController.setToServoFrequency();         // Szervómotorokhoz beállított frekvencia
 
   intiHeatingSystem("/config.json");
@@ -317,7 +317,7 @@ void loop()
   hsystem.update();
 
   // 5 másodperc várakozás
-  delay(3000);
+  delay(1000);
 
   // logMessage("Temp: %f", temperature);
   MDNS.update();
