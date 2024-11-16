@@ -7,6 +7,7 @@
 #include <DallasTemperature.h>
 #include <ArduinoJson.h>
 #include "comon.h"
+#include "HeatingSystemElements/Sensor.h"
 
 struct SensorConfig
 {
@@ -42,6 +43,22 @@ void printAddress(DeviceAddress deviceAddress)
   Serial.println();
 }
 
+std::string addressToString(DeviceAddress deviceAddress)
+{
+  std::string result;
+
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    if (deviceAddress[i] < 16)
+    {
+      result += "0"; // Ha az érték kisebb 16-nál, egy 0-t írunk elé
+    }
+    result += std::string(deviceAddress[i], HEX); // Hexadecimális formátumban adjuk hozzá
+  }
+
+  return result; // Visszatérítjük az épített stringet
+}
+
 // String cím konvertálása DeviceAddress típusú címre
 bool stringToDeviceAddress(String address, DeviceAddress &deviceAddress)
 {
@@ -56,6 +73,20 @@ bool stringToDeviceAddress(String address, DeviceAddress &deviceAddress)
     deviceAddress[i] = (byte)strtol(byteString.c_str(), NULL, 16); // Hex -> byte
   }
   return true;
+}
+
+void updateDsSensors()
+{
+  sensors.requestTemperatures();
+  for (int i = 0; i < sensorCount; i++)
+  {
+    Sensor::SensorsValue[addressToString(sensorAddresses[i])] = sensors.getTempC(sensorAddresses[i]);
+  }
+
+  /* for (HeatingElement element : heatingSystemCollection)
+   {
+       element.update();
+   }*/
 }
 
 // Szenzorok inicializálása és ellenőrzése

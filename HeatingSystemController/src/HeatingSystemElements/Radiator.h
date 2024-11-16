@@ -3,12 +3,12 @@
 
 #include "HeatingElement.h"
 #include "MessageBus.h"
-#include <Arduino.h>
+#include "common.h"
 
 class Radiator : public HeatingElement
 {
 public:
-    Radiator(MessageBus &bus, String name);
+    Radiator(MessageBus &bus, std::string name);
 
     // Radiátor egyedi vezérlése
     void manageHeating(float desiredTemp);

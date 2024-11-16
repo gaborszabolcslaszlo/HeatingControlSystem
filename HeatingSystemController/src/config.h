@@ -33,14 +33,14 @@ void loadConfig()
   // Az SPIFFS inicializálása
   if (!SPIFFS.begin())
   {
-    logMessage("Hiba a SPIFFS indításakor.");
+    logMessage("Hiba a SPIFFS indításakor.\n");
     return;
   }
 
   // Ellenőrizzük, hogy létezik-e a konfigurációs fájl
   if (!SPIFFS.exists("/config.json"))
   {
-    logMessage("Nincs konfigurációs fájl.");
+    logMessage("Nincs konfigurációs fájl.\n");
     return;
   }
 
@@ -48,7 +48,7 @@ void loadConfig()
   File configFile = SPIFFS.open("/config.json", "r");
   if (!configFile)
   {
-    logMessage("Nem sikerült megnyitni a konfigurációs fájlt.");
+    logMessage("Nem sikerült megnyitni a konfigurációs fájlt.\n");
     return;
   }
 
@@ -62,7 +62,7 @@ void loadConfig()
 
   if (error)
   {
-    logMessage("Hiba a konfiguráció beolvasásakor.");
+    logMessage("Hiba a konfiguráció beolvasásakor.\n");
     return;
   }
 
@@ -75,9 +75,9 @@ void loadConfig()
   config.APPassword = configContent["AP_Password"].as<String>();
   config.wifiMode = configContent["WifiMode"].as<String>();
 
-  logMessage("Config betöltve:");
-  logMessage("WiFi SSID: %s", config.wifiSSID);
-  logMessage("WiFi Password: %s", config.wifiPassword);
+  logMessage("Config betöltve:\n");
+  logMessage("  WiFi SSID: %s\n", config.wifiSSID);
+  logMessage("  WiFi Password: %s\n", config.wifiPassword);
 }
 
 // Konfiguráció mentése fájlba
@@ -154,21 +154,21 @@ void handleFileUpload()
   if (upload.status == UPLOAD_FILE_START)
   {
     String filename = "/" + upload.filename;
-    logMessage("Uploading file: %s", filename);
+    logMessage("Uploading file: %s\n", filename);
 
     File file = SPIFFS.open(filename, "w");
-    logMessage("Createing file: %s", filename);
+    logMessage("Createing file: %s\n", filename);
 
     if (!file)
     {
-      logMessage("Failed to open file for writing");
+      logMessage("Failed to open file for writing\n");
       return;
     }
     file.close();
   }
   else if (upload.status == UPLOAD_FILE_WRITE)
   {
-    logMessage("Writing data to file: %s", logMessage);
+    logMessage("Writing data to file: %s\n", logMessage);
     File file = SPIFFS.open("/" + upload.filename, "a");
     if (file)
     {
@@ -177,12 +177,12 @@ void handleFileUpload()
     }
     else
     {
-      logMessage("Failed to open file for writing during upload %s", upload.filename);
+      logMessage("Failed to open file for writing during upload %s\n", upload.filename);
     }
   }
   else if (upload.status == UPLOAD_FILE_END)
   {
-    logMessage("File successfully uploaded: %s", upload.filename);
+    logMessage("File successfully uploaded: %s\n", upload.filename);
   }
 }
 

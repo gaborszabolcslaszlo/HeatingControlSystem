@@ -8,11 +8,12 @@
 #include "certificates.h"
 #include "config.h"
 
-#include "temp_sensors.h"
-#include "HeatingSystemElements/model.h"
-
 #include <GDBStub.h>
 #include <WebSocketsServer.h>
+#include "temp_sensors.h"
+#include "HeatingSystemElements/HeatingSystem.h"
+
+HeatingSystem *hs;
 
 // Globális webszerver változó
 ESP8266WebServer server(80);
@@ -189,7 +190,7 @@ void setup()
   delay(500);
   gdbstub_init();
   Serial.println();
-  logMessage("Start");
+  logMessage("Start\n");
   // SPIFFS inicializálása és konfiguráció betöltése
   loadConfig();
 
@@ -198,7 +199,7 @@ void setup()
   pwmController.setupSingleDevice(Wire, 0x41); // Az alapértelmezett I2C cím: 0x40
   pwmController.setToServoFrequency();         // Szervómotorokhoz beállított frekvencia
 
-  intiHeatingSystem("/config.json");
+  hs = new HeatingSystem("/config.json");
   // NTP kliens indítása
   timeClient.begin();
   timeClient.update();
@@ -222,7 +223,7 @@ void setup()
     while (WiFi.status() != WL_CONNECTED && attempt < max_attempts)
     {
       delay(500);
-      logMessage(".");
+      logMessage(".\n");
       attempt++;
     }
     if (WiFi.waitForConnectResult() == WL_CONNECTED)
@@ -233,7 +234,7 @@ void setup()
   if (config.wifiMode == "STA+AP" || config.wifiMode == "AP")
   {
     WiFi.softAP(config.APSSID, config.APPassword);
-    logMessage("AP IP: %s", WiFi.softAPIP());
+    logMessage("AP IP: %s\n", WiFi.softAPIP().toString().c_str());
   }
 
   server.keepAlive(true);
@@ -277,10 +278,10 @@ void setup()
   }
 
   server.begin();
-  logMessage("HTTPS szerver indítva.");
+  logMessage("HTTPS szerver indítva.\n");
   // MDNS.addService("http", "tcp", 80);
 
-  hsystem.printHeatingSystem();
+  hs->printHeatingSystem();
   // Szenzorok inicializálása
   setupSensors();
 
@@ -295,7 +296,7 @@ void loop()
   {
     if (WiFi.status() != WL_CONNECTED)
     {
-      Serial.print("Csatlakozás a WiFi-hez...");
+      Serial.print("Csatlakozás a WiFi-hez...\n");
       WiFi.begin(config.wifiSSID, config.wifiPassword); // Próbálkozzunk csatlakozni
     }
   }
@@ -313,8 +314,8 @@ void loop()
   }
 
   timeClient.update();
-  updateHeatingSystem();
-  hsystem.update();
+  updateDsSensors();
+  hs->update();
 
   // 5 másodperc várakozás
   delay(1000);

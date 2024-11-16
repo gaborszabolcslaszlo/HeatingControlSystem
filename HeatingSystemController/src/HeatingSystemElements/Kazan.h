@@ -4,24 +4,23 @@
 #include "HeatingElement.h"
 #include "MessageBus.h"
 #include <string>
-#include <WString.h>
+#include "common.h"
 
 class Kazan : public HeatingElement
 {
 public:
-    Kazan(MessageBus &bus, String name, float retourTempProtValue, float tourTempProtValue, float activationThreshold);
+    Kazan(MessageBus &bus, std::string name, float retourTempProtValue, float tourTempProtValue, float activationThreshold);
 
     void checkRetourLowTemperatureProtection();
 
     void onMessageReceived(const std::string &message) override;
     void update();
-    void checkIsActive();
 
     bool getIsOverHeatProtectionActive() const;
-    void setIsOverHeatProtectionActive(bool isOverHeatProtectionActive_);
 
     bool getIsRetourProtectionActive() const;
-    void setIsRetourProtectionActive(bool isRetourProtectionActive_);
+
+    bool getIsKazanActive() const;
 
 private:
     float retourTempProtValue;
@@ -29,6 +28,7 @@ private:
     float activationThreshold;
     bool isRetourProtectionActive;
     bool isOverHeatProtectionActive;
+    bool isKazanActive;
 };
 
 #endif

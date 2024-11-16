@@ -1,6 +1,6 @@
 #include "MessageBus.h"
 // Function to register a listener
-void MessageBus::subscribe(const String &listenerName, std::function<void(const std::string &)> callback)
+void MessageBus::subscribe(const std::string &listenerName, std::function<void(const std::string &)> callback)
 {
     listeners[listenerName.c_str()] = callback;
 }

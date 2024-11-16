@@ -1,6 +1,6 @@
 #include "Puffer.h"
 
-Puffer::Puffer(MessageBus &bus, String name) : HeatingElement(bus, name.c_str()) {}
+Puffer::Puffer(MessageBus &bus, std::string name) : HeatingElement(bus, name) {}
 
 // Puffer egyedi vezérlése
 void Puffer::moveEnergyToRadiators(float radiatorRequestTemp)

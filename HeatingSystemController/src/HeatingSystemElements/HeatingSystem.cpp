@@ -1,7 +1,10 @@
 
 #include "HeatingSystem.h"
 
-HeatingSystem::HeatingSystem() {}
+HeatingSystem::HeatingSystem(const std::string &filename)
+{
+    this->intiHeatingSystem(filename);
+}
 
 void HeatingSystem::postInitTasks()
 {
@@ -32,7 +35,7 @@ void HeatingSystem::addHeatingElement(HeatingElement *element, std::string typeS
     HeatingElementType type = elementTypeFromString(typeString);
     if (type == HeatingElementType::UNKNOWN)
     {
-        Serial.printf("Unknown Heating System Element type: %s \n", typeString.c_str());
+        logMessage("Unknown Heating System Element type: %s \n", typeString.c_str());
     }
     switch (type)
     {
@@ -56,7 +59,7 @@ bool HeatingSystem::validate()
     // Validate Kazan elements
     if (kazan.empty())
     {
-        Serial.println("Error: Kazan element is missing in the configuration.");
+        logMessage("Error: Kazan element is missing in the configuration.\n");
         return false;
     }
 
@@ -71,21 +74,21 @@ bool HeatingSystem::validate()
 
 void HeatingSystem::printHeatingSystem()
 {
-    Serial.println("Heating System:");
+    logMessage("-----Heating System:-----\n");
 
-    Serial.println("  Kazan Elements:");
+    logMessage("-----Kazan Elements:------\n");
     for (auto &element : kazan)
     {
         element->printHeatingElement();
     }
 
-    Serial.println("  Radiator Elements:");
+    logMessage("-----Radiator Elements:----\n");
     for (auto &element : radiators)
     {
         element->printHeatingElement();
     }
 
-    Serial.println("  Puffer Elements:");
+    logMessage("-----Puffer Elements:-------\n");
     for (auto &element : puffer)
     {
         element->printHeatingElement();
@@ -125,14 +128,23 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
     Kazan *kazanPtr = static_cast<Kazan *>(kazan);
     for (HeatingElement *elem : heatingPriorityList)
     {
-        if (kazanPtr->getIsOverHeatProtectionActive())
+        if (kazanPtr->getIsKazanActive())
         {
-            elem->activatePump();
-            kazanPtr->activatePump();
+            kazanPtr->activate();
         }
         else
         {
-            if (kazanPtr->getIsActive())
+            kazanPtr->deactivate();
+        }
+
+        if (kazanPtr->getIsOverHeatProtectionActive())
+        {
+            elem->activate();
+            kazanPtr->activate();
+        }
+        else
+        {
+            if (kazanPtr->getIsKazanActive())
             {
                 if (kazanPtr->getIsRetourProtectionActive())
                 {
@@ -143,6 +155,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                     if (kazan->canSupplyHeat(elem) && elem->getNeedHeating())
                     {
                         elem->activate();
+                        kazanPtr->activate();
                     }
                     else
                     {
@@ -158,7 +171,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                     Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
                     if (pufferPtr->hasStoredEnergy() && elem->getNeedHeating() && pufferPtr->canSupplyHeat(elem))
                     {
-                        Serial.printf("Pufferbol futes activ: %s\n", elem->name);
+                        logMessage("Pufferbol futes activ: %s\n", elem->name);
                         elem->activate();
                         pufferPtr->activate();
                         isOneElement = true;
@@ -171,5 +184,176 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                 }
             }
         }
+    }
+}
+
+void HeatingSystem::intiHeatingSystem(const std::string &filename)
+{
+    logMessage("----- int Heating System -----\n");
+#ifndef UNIT_TESTING
+    File configFile = SPIFFS.open(filename.c_str(), "r");
+    if (!configFile)
+    {
+        logMessage("Failed to open configuration file.\n");
+        return;
+    }
+#endif
+    StaticJsonDocument<2048> doc; // Adjust size as necessary
+    DeserializationError error = deserializeJson(doc, configFile);
+
+    if (error)
+    {
+        logMessage("Failed to read configuration. \n");
+        logMessage("%s", error.f_str());
+        return;
+    }
+
+    JsonObject heatingSystem = doc["HeatingSystem"];
+
+    // Check for mandatory components and validate each section
+    for (JsonPair keyValue : heatingSystem)
+    {
+        const char *key = keyValue.key().c_str(); // Get the key
+        JsonArray elements = heatingSystem[key].as<JsonArray>();
+
+        for (JsonObject element : elements)
+        {
+        std:
+            std::string name = element["name"];
+
+            if (name.empty())
+            {
+                logMessage("Error: Name is mandatory for each element.\n");
+                continue; // Skip this element if name is missing
+            }
+
+            HeatingElement *heatingElement;
+
+            HeatingElementType type = elementTypeFromString(key);
+            if (type == HeatingElementType::UNKNOWN)
+            {
+                logMessage("Unknown Heating System Element type: %s \n", key);
+            }
+
+            switch (type)
+            {
+            case HeatingElementType::KAZAN:
+            {
+                float retourTempProtValue = element["retourTempProtValue"];
+                float tourTempProtValue = element["tourTempProtValue"];
+                float activationThreshold = element["activationThreshold"];
+                heatingElement = new Kazan(messageBus, name, retourTempProtValue, tourTempProtValue, activationThreshold);
+                break;
+            }
+            case HeatingElementType::RADIATOR:
+            {
+                heatingElement = new Radiator(messageBus, name);
+                break;
+            }
+            case HeatingElementType::PUFER:
+            {
+                heatingElement = new Puffer(messageBus, name);
+                break;
+            }
+            default:
+                break;
+            }
+
+            // Validate and load sensors
+            JsonArray sensors = element["sensors"].as<JsonArray>();
+            bool isSensorsValid = true;
+            for (JsonObject sensor : sensors)
+            {
+                std::string model = sensor["model"];
+                SensorPosition position = stringToPosition(sensor["position"]);
+                std::string id = sensor["id"];
+                float offset;
+                if (sensor.containsKey("offset"))
+                {
+                    offset = sensor["offset"];
+                }
+                else
+                {
+                    offset = 0.0;
+                }
+                Sensor newSensor(model, position, id, offset);
+                if (newSensor.validate())
+                {
+                    heatingElement->addSensor(newSensor);
+                }
+                else
+                {
+                    isSensorsValid = false;
+                    logMessage("Error: Invalid sensor configuration.\n");
+                }
+            }
+            if (isSensorsValid)
+            {
+                heatingElement->classifySensors();
+            }
+
+            // Load pumps (name is mandatory)
+            JsonArray pumps = element["pumps"].as<JsonArray>();
+            for (JsonObject pump : pumps)
+            {
+                std::string pumpName = pump["name"];
+                if (pumpName.empty())
+                {
+                    logMessage("Error: Name is mandatory for each pump.\n");
+                    continue; // Skip this pump if name is missing
+                }
+
+                std::string model = pump["model"];
+                int maxControlSig = pump["maxControlSig"];
+                int minControlSig = pump["minControlSig"];
+                std::string workingMode = pump["workingMode"];
+                int IOnumber = pump["IOnumber"];
+
+                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode);
+                heatingElement->addPump(newPump);
+            }
+
+            // Load valves (name is mandatory)
+            JsonArray valves = element["valves"].as<JsonArray>();
+            for (JsonObject valve : valves)
+            {
+                std::string valveName = valve["name"];
+                if (valveName.empty())
+                {
+                    logMessage("Error: Name is mandatory for each valve.\n");
+                    continue; // Skip this valve if name is missing
+                }
+
+                int maxControlSig = valve["maxControlSig"];
+                int minControlSig = valve["minControlSig"];
+                std::string workingMode = valve["workingMode"];
+
+                Valve newValve(valveName, maxControlSig, minControlSig, workingMode);
+                heatingElement->addValve(newValve);
+            }
+
+            // Add heatingElement to your heating system collection
+            // hsystem.addHeatingElement(heatingElement, keyValue.key().c_str());
+            switch (type)
+            {
+            case HeatingElementType::KAZAN:
+                this->addKazan(heatingElement);
+                break;
+            case HeatingElementType::RADIATOR:
+                this->addRadiator(heatingElement);
+                break;
+            case HeatingElementType::PUFER:
+                this->addPuffer(heatingElement);
+                break;
+
+            default:
+                break;
+            }
+
+            // heatingSystemCollection.push_back(heatingElement); // Store the heating element in the collection
+            // heatingElement->printHeatingElement();
+        }
+
+        this->postInitTasks();
     }
 }

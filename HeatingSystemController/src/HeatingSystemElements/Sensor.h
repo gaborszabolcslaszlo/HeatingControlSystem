@@ -2,8 +2,8 @@
 #define SENSOR_H
 
 #include <string>
-#include <Arduino.h>
 #include <map>
+#include "common.h"
 
 #ifdef PIO_UNIT_TESTING
 extern std::map<std::string, float> mockSensorValues;
@@ -18,25 +18,25 @@ enum class SensorPosition
 };
 
 // Utility function to convert SensorPosition enum to string for Serial printing
-String positionToString(SensorPosition pos);
+std::string positionToString(SensorPosition pos);
 
 // Function to convert string to SensorPosition enum
-SensorPosition stringToPosition(const String &positionStr);
+SensorPosition stringToPosition(const std::string &positionStr);
 
 // Sensor class
 class Sensor
 {
 public:
-    String model;
+    std::string model;
     SensorPosition position; // Change position type to enum
-    String id;
+    std::string id;
     float temperature;
     static std::map<std::string, float> SensorsValue;
     float offset;
 
     Sensor();
 
-    Sensor(const String &model, SensorPosition position, const String &id, float offset);
+    Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset);
 
     void print() const;
 
@@ -57,7 +57,7 @@ public:
     void update();
 
 private:
-    String positionToString(SensorPosition pos) const;
+    std::string positionToString(SensorPosition pos) const;
 };
 
 #endif

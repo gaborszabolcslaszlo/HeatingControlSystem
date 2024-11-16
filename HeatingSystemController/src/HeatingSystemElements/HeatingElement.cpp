@@ -41,7 +41,7 @@ HeatingElementType elementTypeFromString(const std::string &str)
     }
 }
 
-HeatingElement::HeatingElement(MessageBus &bus, const String name) : messageBus(bus), name(name), isActive(false), needHeating(false)
+HeatingElement::HeatingElement(MessageBus &bus, const std::string name) : messageBus(bus), name(name), isActive(false), needHeating(false)
 {
     messageBus.subscribe(name, [this](const std::string &msg)
                          { this->onMessageReceived(msg); });
@@ -124,7 +124,8 @@ float HeatingElement::getBodyTemperature()
 // Function to classify sensors based on their position
 void HeatingElement::classifySensors()
 {
-    Serial.println("----- classify sensors modul:" + name + "-----");
+    // Serial.println("----- classify sensors modul:" + name + "-----");
+    logMessage("----- classify sensors modul: %s ----- \n", name.c_str());
     for (const auto &sensor : sensors)
     {
         if (sensor.position == SensorPosition::TOUR)
@@ -161,31 +162,31 @@ float HeatingElement::calculateAverageTemperature(const std::vector<Sensor *> &s
 }
 
 // Function to print sensors using Serial
-void HeatingElement::printSensors(const std::vector<Sensor *> &sensors, const String &group)
+void HeatingElement::printSensors(const std::vector<Sensor *> &sensors, const std::string &group)
 {
-    String s = "";
+    std::string s = "";
     if (sensors.size() > (std::size_t)1)
     {
         s = " sensors are redundant";
     }
-    Serial.println("    Sensors in " + group + " group " + s);
+    logMessage("        Sensors in %s group %s\n", group.c_str(), s.c_str());
     for (const auto &sensor : sensors)
     {
-        Serial.print("          Model: ");
-        Serial.print(sensor->model);
-        Serial.print(", ID: ");
-        Serial.print(sensor->id);
-        Serial.print(", Position: ");
-        Serial.println(positionToString(sensor->position));
+        logMessage("            Model: %s\n", sensor->model.c_str());
+
+        logMessage("            ID%s\n", sensor->id.c_str());
+
+        // Serial.println();
+        logMessage("            Position: %s\n", positionToString(sensor->position).c_str());
     }
 }
 
 bool HeatingElement::validate()
 {
     // Name must be present
-    if (name.isEmpty())
+    if (name.empty())
     {
-        Serial.println("Error: Heating element name is missing.");
+        logMessage("Error: Heating element name is missing.\n");
         return false;
     }
 
@@ -194,7 +195,7 @@ bool HeatingElement::validate()
     {
         if (!sensor.validate())
         {
-            Serial.println("Error: Invalid sensor in " + name);
+            logMessage("Error: Invalid sensor in %s\n", name);
             return false;
         }
     }
@@ -204,7 +205,7 @@ bool HeatingElement::validate()
     {
         if (!pump.validate())
         {
-            Serial.println("Error: Invalid pump in " + name);
+            logMessage("Error: Invalid pump in %s\n", name);
             return false;
         }
     }
@@ -214,7 +215,7 @@ bool HeatingElement::validate()
     {
         if (!valve.validate())
         {
-            Serial.println("Error: Invalid valve in " + name);
+            logMessage("Error: Invalid valve in %s\n", name);
             return false;
         }
     }
@@ -224,9 +225,9 @@ bool HeatingElement::validate()
 
 void HeatingElement::printHeatingElement()
 {
-    Serial.println("Heating Element: " + name);
+    logMessage("-----Heating Element: %s\n", name.c_str());
 
-    Serial.println("  Sensors:");
+    logMessage("-----Sensors:\n");
     for (auto &sensor : sensors)
     {
         sensor.print();
@@ -236,13 +237,13 @@ void HeatingElement::printHeatingElement()
     printSensors(retourSensors, positionToString(SensorPosition::RETOUR));
     printSensors(bodySensors, positionToString(SensorPosition::BODY));
 
-    Serial.println("  Pumps:");
+    logMessage("------Pumps:\n");
     for (auto &pump : pumps)
     {
         pump.print();
     }
 
-    Serial.println("  Valves:");
+    logMessage("------Valves:\n");
     for (auto &valve : valves)
     {
         valve.print();
@@ -275,11 +276,11 @@ bool HeatingElement::canSupplyHeat(HeatingElement *element)
     // Ha a különbség az előremenő és visszatérő hőmérséklet között elég nagy, akkor még tud hőt biztosítani
     if ((forwardTemp - returnTemp) > minTempDifference)
     {
-        Serial.printf("Source %s can trnasfer heat to %s", name, element->name);
+        logMessage("Source %s can trnasfer heat to %s\n", name.c_str(), element->name.c_str());
         return true; // Kazán tud még hőt biztosítani
     }
 
-    Serial.printf("Source %s can't trnasfer heat to %s", name, element->name);
+    logMessage("Source %s can't trnasfer heat to %s\n", name.c_str(), element->name.c_str());
     return false; // A hőmérsékletkülönbség túl kicsi, a fűtési elem már nem tud több hőt felvenni
 }
 

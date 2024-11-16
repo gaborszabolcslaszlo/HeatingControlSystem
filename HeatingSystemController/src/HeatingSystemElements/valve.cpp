@@ -4,7 +4,7 @@
 
 Valve::Valve() {}
 
-Valve::Valve(String name, int maxControlSig, int minControlSig, String workingMode)
+Valve::Valve(std::string name, int maxControlSig, int minControlSig, std::string workingMode)
 {
     this->name = name;
     this->maxControlSig = maxControlSig;
@@ -14,9 +14,9 @@ Valve::Valve(String name, int maxControlSig, int minControlSig, String workingMo
 
 bool Valve::validate()
 {
-    if (name.isEmpty())
+    if (name.empty())
     {
-        Serial.println("Error: Valve name is missing.");
+        logMessage("Error: Valve name is missing.");
         return false;
     }
     return true;
@@ -24,9 +24,9 @@ bool Valve::validate()
 
 void Valve::print()
 {
-    Serial.print("      Valve:");
-    Serial.print("  Name: " + name);
-    Serial.print(",  Max Control Signal: " + String(maxControlSig));
-    Serial.print(",  Min Control Signal: " + String(minControlSig));
-    Serial.println(",  Working Mode: " + workingMode);
+    logMessage("        Valve:\n");
+    logMessage("            Name: %s\n", name.c_str());
+    logMessage("            Max Control Signal: %s\n", std::to_string(maxControlSig).c_str());
+    logMessage("            Min Control Signal: %s\n", std::to_string(minControlSig).c_str());
+    logMessage("            Working Mode: %s\n", workingMode.c_str());
 }

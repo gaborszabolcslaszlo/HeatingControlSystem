@@ -1,21 +1,21 @@
 #ifndef VALVE_H
 #define VALVE_H
 
-#include <WString.h>
-#include <Arduino.h>
-
+#include "../comon.h"
+#include <string>
+#include "common.h"
 // Valve class
 class Valve
 {
 public:
-    String name;
+    std::string name;
     int maxControlSig;
     int minControlSig;
-    String workingMode;
+    std::string workingMode;
 
     Valve();
 
-    Valve(String name, int maxControlSig, int minControlSig, String workingMode);
+    Valve(std::string name, int maxControlSig, int minControlSig, std::string workingMode);
 
     bool validate();
 

@@ -4,13 +4,12 @@
 #include "HeatingElement.h"
 #include "MessageBus.h"
 #include <string> // std::string használatához
-#include <Arduino.h>
-#include <WString.h>
+#include "common.h"
 
 class Puffer : public HeatingElement
 {
 public:
-    Puffer(MessageBus &bus, String name); // std::string használata
+    Puffer(MessageBus &bus, std::string name); // std::string használata
 
     // Puffer egyedi vezérlése
     void moveEnergyToRadiators(float radiatorRequestTemp);

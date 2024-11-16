@@ -6,6 +6,9 @@
 #include "HeatingTransfer.h"
 #include "MessageBus.h"
 #include "Sensor.h"
+#include "../comon.h"
+#include <string>
+#include "common.h"
 
 enum class HeatingElementType
 {
@@ -24,7 +27,7 @@ HeatingElementType elementTypeFromString(const std::string &str);
 class HeatingElement
 {
 public:
-    String name;
+    std::string name;
     bool isActive; // Állapotjelző, hogy az elem éppen aktív-e
     std::vector<Sensor> sensors;
     std::vector<Pump> pumps;
@@ -36,7 +39,7 @@ public:
 
     HeatingTransfer heatTransfer;
 
-    HeatingElement(MessageBus &bus, const String name);
+    HeatingElement(MessageBus &bus, const std::string name);
 
     void activatePump();
 
@@ -65,7 +68,7 @@ public:
     float calculateAverageTemperature(const std::vector<Sensor *> &sensors);
 
     // Function to print sensors using Serial
-    void printSensors(const std::vector<Sensor *> &sensors, const String &group);
+    void printSensors(const std::vector<Sensor *> &sensors, const std::string &group);
 
     bool validate();
 

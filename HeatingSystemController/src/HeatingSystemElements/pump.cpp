@@ -37,7 +37,7 @@ PumpWorkingMode PumpWorkingModeFromString(const std::string &modeStr)
 
 Pump::Pump() {}
 
-Pump::Pump(int id, String name, String model, int maxControlSig, int minControlSig, String workingMode)
+Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode)
 {
     this->id = id;
     this->name = name;
@@ -60,9 +60,9 @@ void Pump::setControlSignal(int value)
 
 bool Pump::validate()
 {
-    if (name.isEmpty() || model.isEmpty() || workingMode != PumpWorkingMode::UNKNOWN)
+    if (name.empty() || model.empty() || workingMode != PumpWorkingMode::UNKNOWN)
     {
-        Serial.println("Error: Pump name, model, or working mode is missing.");
+        logMessage("Error: Pump name, model, or working mode is missing.");
         return false;
     }
     return true;
@@ -70,12 +70,12 @@ bool Pump::validate()
 
 void Pump::print()
 {
-    Serial.print("      Pump:");
-    Serial.print("  Name: " + name);
-    Serial.print(", Model: " + model);
-    Serial.print(", Max Control Signal: " + String(maxControlSig));
-    Serial.print(", Min Control Signal: " + String(minControlSig));
-    Serial.printf(", Working Mode: %s \n", PumpWorkingModeToString(workingMode).c_str());
+    logMessage("        Pump:\n");
+    logMessage("            Name: %s\n", name.c_str());
+    logMessage("            Model: %s\n", model.c_str());
+    logMessage("            Max Control Signal: %s\n", std::to_string(maxControlSig).c_str());
+    logMessage("            Min Control Signal: %s\n", std::to_string(minControlSig).c_str());
+    logMessage("            Working Mode: %s \n", PumpWorkingModeToString(workingMode).c_str());
 }
 
 void Pump::update()

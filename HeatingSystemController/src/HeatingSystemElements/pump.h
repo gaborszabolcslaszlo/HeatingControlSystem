@@ -1,9 +1,8 @@
 #ifndef PUMP_H
 #define PUMP_H
 
-#include <WString.h>
-#include <Arduino.h>
 #include <string>
+#include "common.h"
 
 enum class PumpWorkingMode
 {
@@ -15,16 +14,14 @@ enum class PumpWorkingMode
 // "to string" függvény
 std::string PumpWorkingModeToString(PumpWorkingMode mode);
 
-
 // "from string" függvény
 PumpWorkingMode PumpWorkingModeFromString(const std::string &modeStr);
-
 
 class Pump
 {
 public:
-    String name;
-    String model;
+    std::string name;
+    std::string model;
     int maxControlSig;
     int minControlSig;
     PumpWorkingMode workingMode;
@@ -32,7 +29,7 @@ public:
 
     Pump();
 
-    Pump(int id, String name, String model, int maxControlSig, int minControlSig, String workingMode);
+    Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode);
 
     int getControlSignal() const;
 

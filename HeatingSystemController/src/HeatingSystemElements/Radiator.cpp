@@ -1,6 +1,6 @@
 #include "Radiator.h"
 
-Radiator::Radiator(MessageBus &bus, String name) : HeatingElement(bus, name.c_str()) {}
+Radiator::Radiator(MessageBus &bus, std::string name) : HeatingElement(bus, name) {}
 
 // Radiátor egyedi vezérlése
 void Radiator::manageHeating(float desiredTemp)

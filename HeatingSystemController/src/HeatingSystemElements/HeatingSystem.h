@@ -1,8 +1,16 @@
 // HeatingSystem class (contains the entire system)
+#ifndef HEATINGSYSTEM_H
+#define HEATINGSYSTEM_H
+
 #include "HeatingElement.h"
 #include <string>
 #include "Kazan.h"
 #include "Puffer.h"
+#include <ArduinoJson.h>
+#include "MessageBus.h"
+#include "Bojler.h"
+#include "Radiator.h"
+#include "common.h"
 
 class HeatingSystem
 {
@@ -17,7 +25,7 @@ public:
 
     std::map<std::string, float> *ptrSensorsValue;
 
-    HeatingSystem();
+    HeatingSystem(const std::string &filename);
 
     void postInitTasks();
 
@@ -36,4 +44,11 @@ public:
     void update();
 
     void controlHeatingSystem(HeatingElement *kazan);
+
+    void intiHeatingSystem(const std::string &filename);
+
+private:
+    MessageBus messageBus;
 };
+
+#endif

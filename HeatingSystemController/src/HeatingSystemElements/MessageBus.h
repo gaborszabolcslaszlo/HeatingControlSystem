@@ -1,18 +1,18 @@
 #ifndef MESSAGEBUS
 #define MESSAGEBUS
 
-#include <WString.h>
 #include <map>
 #include <string>
 #include <unordered_map>
 #include <functional>
+#include "common.h"
 
 // Message Bus class for broadcasting messages
 class MessageBus
 {
 public:
     // Function to register a listener
-    void subscribe(const String &listenerName, std::function<void(const std::string &)> callback);
+    void subscribe(const std::string &listenerName, std::function<void(const std::string &)> callback);
 
     // Function to broadcast a message to all listeners
     void broadcast(const std::string &senderName, std::string message);

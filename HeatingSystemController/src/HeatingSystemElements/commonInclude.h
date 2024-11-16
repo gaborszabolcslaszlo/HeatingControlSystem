@@ -7,7 +7,6 @@
 #include <string>
 #include <map>
 
-#include <temp_sensors.h>
 #include "Kazan.h"
 #include "valve.h"
 #include "pump.h"

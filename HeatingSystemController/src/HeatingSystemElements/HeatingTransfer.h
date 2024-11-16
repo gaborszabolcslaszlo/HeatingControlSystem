@@ -3,6 +3,8 @@
 
 #include "HeatingTransfer.h"
 #include "Sensor.h"
+#include <vector>
+#include "common.h"
 
 // New class that stores the flow rate value.
 class FlowRate

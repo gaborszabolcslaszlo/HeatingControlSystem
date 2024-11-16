@@ -1,7 +1,7 @@
 #include "Sensor.h"
 
 // Utility function to convert SensorPosition enum to string for Serial printing
-String positionToString(SensorPosition pos)
+std::string positionToString(SensorPosition pos)
 {
     switch (pos)
     {
@@ -17,45 +17,41 @@ String positionToString(SensorPosition pos)
 };
 
 // Function to convert string to SensorPosition enum
-SensorPosition stringToPosition(const String &positionStr)
+SensorPosition stringToPosition(const std::string &positionStr)
 {
-    if (positionStr.equalsIgnoreCase("tour"))
+    if (positionStr == "tour")
         return SensorPosition::TOUR;
-    if (positionStr.equalsIgnoreCase("retour"))
+    if (positionStr == "retour")
         return SensorPosition::RETOUR;
-    if (positionStr.equalsIgnoreCase("body"))
+    if (positionStr == "body")
         return SensorPosition::BODY;
     return SensorPosition::UNKNOWN; // Return Invalid for any other string
 };
 
 Sensor::Sensor() {}
 
-Sensor::Sensor(const String &model, SensorPosition position, const String &id, float offset)
+Sensor::Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset)
     : model(model), position(position), id(id), offset(offset)
 {
 }
 
 void Sensor::print() const
 {
-    Serial.print("      Sensor: ");
-    Serial.print("  Model: ");
-    Serial.print(model);
-    Serial.print(", Position: ");
-    Serial.print(positionToString(position));
-    Serial.print(", ID: ");
-    Serial.println(id);
+    logMessage("        Sensor: \n");
+    logMessage("            Model: %s\n", model.c_str());
+    logMessage("            Position: %s\n", positionToString(position).c_str());
+    logMessage("            ID: %s\n", id.c_str());
     if (offset != 0.0)
     {
-        Serial.print(", Offset: ");
-        Serial.println(offset);
+        logMessage("            Offset: %f\n", offset);
     }
 }
 
 bool Sensor::validate() const
 {
-    if (model.isEmpty() || id.isEmpty() || position == SensorPosition::UNKNOWN)
+    if (model.empty() || id.empty() || position == SensorPosition::UNKNOWN)
     {
-        Serial.println("Error: Sensor model, id, or position is invalid.");
+        logMessage("Error: Sensor model, id, or position is invalid.");
         return false;
     }
     return true;
@@ -113,15 +109,16 @@ void Sensor::update()
     setTemperature(value);
     SensorsValue[id.c_str()] = getTemperature();
 #else
-    DeviceAddress addr;
-    stringToDeviceAddress(id, addr);
-    setTemperature(sensors.getTempC(addr));
-    SensorsValue[id.c_str()] = getTemperature();
+    // if (SensorsValue.contains(id))
+    {
+        setTemperature(SensorsValue[id]);
+    }
+    // SensorsValue[id.c_str()] = getTemperature();
 #endif
 #endif
 }
 
-String Sensor::positionToString(SensorPosition pos) const
+std::string Sensor::positionToString(SensorPosition pos) const
 {
     switch (pos)
     {

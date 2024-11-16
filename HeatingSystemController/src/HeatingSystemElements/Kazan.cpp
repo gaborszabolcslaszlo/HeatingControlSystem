@@ -1,9 +1,9 @@
 
 #include "Kazan.h"
 
-Kazan::Kazan(MessageBus &bus, String name, float retourTempProtValue, float tourTempProtValue, float activationThreshold) : HeatingElement(bus, name.c_str())
+Kazan::Kazan(MessageBus &bus, std::string name, float retourTempProtValue, float tourTempProtValue, float activationThreshold) : HeatingElement(bus, name)
 {
-    Serial.println("Kazán Obiektum!!!!");
+    logMessage("Kazán Obiektum!!!!\n");
     this->retourTempProtValue = retourTempProtValue;
     this->tourTempProtValue = tourTempProtValue;
     this->activationThreshold = activationThreshold;
@@ -13,19 +13,20 @@ void Kazan::checkRetourLowTemperatureProtection()
 {
     float tourTemp = HeatingElement::getTourTemperature();
     float retourTemp = HeatingElement::getReTourTemperature();
-    if (!isOverHeatProtectionActive && HeatingElement::getBodyTemperature() > (tourTempProtValue + tourTempProtValue * 0.05))
+    float bodyTemp = HeatingElement::getBodyTemperature();
+    if (!isOverHeatProtectionActive && bodyTemp > (tourTempProtValue + tourTempProtValue * 0.05))
     {
-        Serial.println("Kazán tulmelegedes védelem aktiválva!");
+        logMessage("Kazán tulmelegedes védelem aktiválva!\n");
         isOverHeatProtectionActive = true;
     }
-    else if (isOverHeatProtectionActive && HeatingElement::getBodyTemperature() < (tourTempProtValue - tourTempProtValue * 0.05))
+    else if (isOverHeatProtectionActive && bodyTemp < (tourTempProtValue - tourTempProtValue * 0.05))
     {
         isOverHeatProtectionActive = false;
     }
 
     if (!isRetourProtectionActive && retourTemp < (retourTempProtValue - retourTempProtValue * 0.05))
     {
-        Serial.println("Kazán retour védelem aktiválva!");
+        logMessage("Kazán retour védelem aktiválva!\n");
         isRetourProtectionActive = true;
     }
     else if (isRetourProtectionActive && retourTemp > (retourTempProtValue + retourTempProtValue * 0.05))
@@ -33,39 +34,33 @@ void Kazan::checkRetourLowTemperatureProtection()
         isRetourProtectionActive = false;
     }
 
-    if (HeatingElement::getTourTemperature() < HeatingElement::getReTourTemperature() * 1.05)
+    if (!isKazanActive && bodyTemp > (activationThreshold - activationThreshold * 0.05))
     {
-        HeatingElement::deactivate();
+        logMessage("Kazán aktiv!\n");
+        isKazanActive = true;
     }
-}
-
-void Kazan::checkIsActive()
-{
-    HeatingElement::getBodyTemperature();
-    if (HeatingElement::getBodyTemperature() > activationThreshold)
+    else if (isKazanActive && bodyTemp < (activationThreshold + activationThreshold * 0.05))
     {
-        HeatingElement::activate();
-    }
-    else
-    {
-        HeatingElement::deactivate();
+        isKazanActive = false;
     }
 }
 
 void Kazan::onMessageReceived(const std::string &message)
 {
-    Serial.println(message.c_str());
+    logMessage("%s\n", message.c_str());
 }
 
 void Kazan::update()
 {
-    Kazan::checkIsActive();
     checkRetourLowTemperatureProtection();
     HeatingElement::update();
 }
 
 bool Kazan::getIsOverHeatProtectionActive() const { return isOverHeatProtectionActive; }
-void Kazan::setIsOverHeatProtectionActive(bool isOverHeatProtectionActive_) { isOverHeatProtectionActive = isOverHeatProtectionActive_; }
 
 bool Kazan::getIsRetourProtectionActive() const { return isRetourProtectionActive; }
-void Kazan::setIsRetourProtectionActive(bool isRetourProtectionActive_) { isRetourProtectionActive = isRetourProtectionActive_; }
+
+bool Kazan::getIsKazanActive() const
+{
+    return isKazanActive;
+}
