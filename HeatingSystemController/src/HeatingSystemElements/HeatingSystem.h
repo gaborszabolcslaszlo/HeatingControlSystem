@@ -11,6 +11,9 @@
 #include "Bojler.h"
 #include "Radiator.h"
 #include "common.h"
+#include <fstream> // Fájlok olvasásához és írásához
+#include <iostream>
+#include "../comon.h"
 
 class HeatingSystem
 {

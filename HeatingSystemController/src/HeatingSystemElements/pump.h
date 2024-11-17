@@ -3,6 +3,7 @@
 
 #include <string>
 #include "common.h"
+#include "../comon.h"
 
 enum class PumpWorkingMode
 {

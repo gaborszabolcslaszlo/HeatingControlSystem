@@ -12,6 +12,12 @@ bool Puffer::hasStoredEnergy()
     return getBodyTemperature() > 30; // Van tárolt energia, ha a hőmérséklet magasabb, mint a minimum
 }
 
+void Puffer::update()
+{
+    HeatingElement::update();
+    HeatingElement::ElementsStateMap[name]["HT"] = std::to_string(this->heatTransfer.transferValue);
+}
+
 bool Puffer::canSupplyHeat(HeatingElement *element)
 {
     double bodyTemp = this->getBodyTemperature();        // Kazán előremenő hőmérséklete

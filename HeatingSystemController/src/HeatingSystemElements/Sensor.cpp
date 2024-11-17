@@ -109,7 +109,7 @@ void Sensor::update()
     setTemperature(value);
     SensorsValue[id.c_str()] = getTemperature();
 #else
-    // if (SensorsValue.contains(id))
+    if (SensorsValue.find(id) != SensorsValue.end())
     {
         setTemperature(SensorsValue[id]);
     }

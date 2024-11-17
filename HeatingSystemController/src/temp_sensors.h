@@ -8,6 +8,8 @@
 #include <ArduinoJson.h>
 #include "comon.h"
 #include "HeatingSystemElements/Sensor.h"
+#include <iomanip> // Számformázáshoz szükséges
+#include <sstream> // Stringstream használatas
 
 struct SensorConfig
 {
@@ -45,18 +47,14 @@ void printAddress(DeviceAddress deviceAddress)
 
 std::string addressToString(DeviceAddress deviceAddress)
 {
-  std::string result;
-
+  std::stringstream result;
   for (uint8_t i = 0; i < 8; i++)
   {
     if (deviceAddress[i] < 16)
-    {
-      result += "0"; // Ha az érték kisebb 16-nál, egy 0-t írunk elé
-    }
-    result += std::string(deviceAddress[i], HEX); // Hexadecimális formátumban adjuk hozzá
+      result << "0"; // Ha kisebb mint 16, előtte nullát írunk
+    result << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)deviceAddress[i];
   }
-
-  return result; // Visszatérítjük az épített stringet
+  return result.str();
 }
 
 // String cím konvertálása DeviceAddress típusú címre
@@ -80,7 +78,7 @@ void updateDsSensors()
   sensors.requestTemperatures();
   for (int i = 0; i < sensorCount; i++)
   {
-    Sensor::SensorsValue[addressToString(sensorAddresses[i])] = sensors.getTempC(sensorAddresses[i]);
+    Sensor::SensorsValue[addressToString(sensorAddresses[i]).c_str()] = sensors.getTempC(sensorAddresses[i]);
   }
 
   /* for (HeatingElement element : heatingSystemCollection)

@@ -76,6 +76,7 @@ void Pump::print()
     logMessage("            Max Control Signal: %s\n", std::to_string(maxControlSig).c_str());
     logMessage("            Min Control Signal: %s\n", std::to_string(minControlSig).c_str());
     logMessage("            Working Mode: %s \n", PumpWorkingModeToString(workingMode).c_str());
+    logMessage("            IOid: %s\n", std::to_string(id).c_str());
 }
 
 void Pump::update()

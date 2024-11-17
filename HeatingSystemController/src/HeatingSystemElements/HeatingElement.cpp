@@ -1,5 +1,9 @@
 #include "HeatingElement.h"
 
+#include "../comon.h"
+
+std::map<std::string, std::map<std::string, std::string>> HeatingElement::ElementsStateMap;
+
 std::string elementTypeToString(HeatingElementType type)
 {
     switch (type)
@@ -264,6 +268,8 @@ void HeatingElement::update()
 
     // Perform the calculation.
     heatTransfer.calculateHeatingTransferDirection(tourSensors, retourSensors, 1.0);
+
+    ElementsStateMap[name]["HT"] = std::to_string(this->heatTransfer.transferValue);
 }
 
 bool HeatingElement::canSupplyHeat(HeatingElement *element)

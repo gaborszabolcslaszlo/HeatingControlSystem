@@ -5,6 +5,7 @@
 #include "MessageBus.h"
 #include <string> // std::string használatához
 #include "common.h"
+#include "../comon.h"
 
 class Puffer : public HeatingElement
 {
@@ -15,6 +16,8 @@ public:
     void moveEnergyToRadiators(float radiatorRequestTemp);
 
     bool hasStoredEnergy();
+
+    void update();
 
     bool canSupplyHeat(HeatingElement *element) override; // Override helyes használata
 };

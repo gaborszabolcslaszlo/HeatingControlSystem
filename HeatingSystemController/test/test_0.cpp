@@ -68,7 +68,7 @@ void writeIO(int id, int value)
 void setUp(const std::string &filename)
 {
     // Inicializációs kód a tesztek előtt
-    hs = new HeatingSystem(filename);
+    hs = new HeatingSystem(std::string(""));
 }
 
 // Tesztelés utáni takarítás
@@ -233,6 +233,4 @@ void loop()
     // Az ESP8266 folyamatosan futtatja a loop-ot, de a tesztek csak egyszer futnak le
 }
 
-int main()
-{
-}
+int main() {}

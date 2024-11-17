@@ -5,6 +5,7 @@
 #include "MessageBus.h"
 #include <string>
 #include "common.h"
+#include "../comon.h"
 
 class Kazan : public HeatingElement
 {
@@ -21,6 +22,8 @@ public:
     bool getIsRetourProtectionActive() const;
 
     bool getIsKazanActive() const;
+
+    
 
 private:
     float retourTempProtValue;

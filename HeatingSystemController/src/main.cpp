@@ -12,8 +12,10 @@
 #include <WebSocketsServer.h>
 #include "temp_sensors.h"
 #include "HeatingSystemElements/HeatingSystem.h"
-
+#include <Ticker.h>
 HeatingSystem *hs;
+
+Ticker timer;
 
 // Globális webszerver változó
 ESP8266WebServer server(80);
@@ -35,14 +37,16 @@ PCA9685 pwmController;
 // Létrehozunk egy std::map-et, ahol mind a kulcs, mind az érték int típusú
 std::map<int, int> IOMap;
 
-// Statikus változó definíciója az osztályon kívül
+// Statikus változó definíciója az osztályon kívüls
 std::map<std::string, float> Sensor::SensorsValue;
 
 // A map konvertálása JSON formátumba
-String IOMapToJson(const std::map<int, int> &intMap, const std::map<std::string, float> &floatMap)
+String IOMapToJson(const std::map<int, int> &intMap,
+                   const std::map<std::string, float> &floatMap,
+                   const std::map<std::string, std::map<std::string, std::string>> &stateMap)
 {
   // Létrehozunk egy StaticJsonDocument-et
-  StaticJsonDocument<400> jsonDoc;
+  StaticJsonDocument<1000> jsonDoc;
 
   // Integer kulcs-érték párok hozzáadása a JSON-hez
   for (const auto &pair : intMap)
@@ -53,7 +57,17 @@ String IOMapToJson(const std::map<int, int> &intMap, const std::map<std::string,
   // String kulcs-érték párok hozzáadása a JSON-hez
   for (const auto &pair : floatMap)
   {
-    jsonDoc[pair.first] = pair.second; // String kulcsok közvetlenül hozzáadhatók
+    jsonDoc[pair.first.c_str()] = pair.second; // String kulcsok közvetlenül hozzáadhatók
+  }
+
+  // Bejárjuk az ElementsStateMap-et és feltöltjük a JSON-t
+  for (const auto &outerPair : stateMap)
+  {
+    JsonObject element = jsonDoc.createNestedObject(outerPair.first.c_str());
+    for (const auto &innerPair : outerPair.second)
+    {
+      element[innerPair.first.c_str()] = innerPair.second.c_str();
+    }
   }
 
   // Serializáljuk a JSON objektumot egy stringgé
@@ -109,7 +123,7 @@ void handleReboot()
 void hadleStateRequest()
 {
   // JSON string létrehozása
-  String jsonResponse = IOMapToJson(IOMap, Sensor::SensorsValue);
+  String jsonResponse = IOMapToJson(IOMap, Sensor::SensorsValue, HeatingElement::ElementsStateMap);
 
   // Válasz küldése JSON formátumban
   server.send(200, "application/json", jsonResponse);
@@ -180,6 +194,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     }
     break;
   }
+}
+
+void onTimerISR()
+{
+  webSocket.loop(); // Az időzítő minden hívásnál váltja az értéket
 }
 
 void setup()
@@ -288,6 +307,8 @@ void setup()
   // WebSocket szerver indítása
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+
+  timer.attach(1, onTimerISR);
 }
 
 void loop()
@@ -323,14 +344,11 @@ void loop()
   // logMessage("Temp: %f", temperature);
   MDNS.update();
 
-  webSocket.loop();
   // Ha hitelesítés sikeres, folyamatosan küldhetünk adatokat
   if (isAuthenticated && isDataNew)
   {
-    static unsigned long lastSendTime = 0;
-
     isDataNew = false;
-    String data = IOMapToJson(IOMap, Sensor::SensorsValue);
+    String data = IOMapToJson(IOMap, Sensor::SensorsValue, HeatingElement::ElementsStateMap);
     webSocket.broadcastTXT(data);
   }
 }

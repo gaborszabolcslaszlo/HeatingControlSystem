@@ -6,9 +6,9 @@
 #include "HeatingTransfer.h"
 #include "MessageBus.h"
 #include "Sensor.h"
-#include "../comon.h"
 #include <string>
 #include "common.h"
+#include "../comon.h"
 
 enum class HeatingElementType
 {
@@ -80,6 +80,7 @@ public:
 
     bool getNeedHeating() const;
     void setNeedHeating(bool needHeating_);
+    static std::map<std::string, std::map<std::string, std::string>> ElementsStateMap;
 
 protected:
     bool needHeating;

@@ -190,6 +190,8 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
 void HeatingSystem::intiHeatingSystem(const std::string &filename)
 {
     logMessage("----- int Heating System -----\n");
+    StaticJsonDocument<2048> doc; // Adjust size as necessary
+
 #ifndef UNIT_TESTING
     File configFile = SPIFFS.open(filename.c_str(), "r");
     if (!configFile)
@@ -197,14 +199,26 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
         logMessage("Failed to open configuration file.\n");
         return;
     }
-#endif
-    StaticJsonDocument<2048> doc; // Adjust size as necessary
     DeserializationError error = deserializeJson(doc, configFile);
+#else
+    // Fájl megnyitása
+    std::ifstream configFile(filename);
+
+    // Ellenőrizni, hogy sikerült-e megnyitni a fájlt
+    if (!configFile.is_open())
+    {
+        logMessage("Failed to open configuration file on linux\n");
+        return;
+    }
+
+    std::string fileContent((std::istreambuf_iterator<char>(configFile)), std::istreambuf_iterator<char>());
+    DeserializationError error = deserializeJson(doc, fileContent);
+#endif
 
     if (error)
     {
         logMessage("Failed to read configuration. \n");
-        logMessage("%s", error.f_str());
+        logMessage("%s", error.c_str());
         return;
     }
 

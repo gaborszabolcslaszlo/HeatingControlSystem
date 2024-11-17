@@ -5,6 +5,7 @@
 #include "Sensor.h"
 #include <vector>
 #include "common.h"
+#include "../comon.h"
 
 // New class that stores the flow rate value.
 class FlowRate

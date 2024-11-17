@@ -1,7 +1,9 @@
 // comon.h
 
-#ifndef COMON_Hs
-#define COMON_H
+// #ifndef COMON_H
+// #define COMON_H
+
+#pragma once
 
 #ifndef UNIT_TESTING
 #include <WiFiUdp.h>
@@ -28,9 +30,9 @@ boolean sendFile(String path);
 
 void handleLogs();
 
-#endif
 #else
 // Logger funkció, az unit testhez.
 void logMessage(const char *format, ...);
 
 #endif
+// #endif
