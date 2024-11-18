@@ -80,28 +80,37 @@ String IOMapToJson(const std::map<int, int> &intMap,
 // Hőmérséklet API kezelő
 void handleHeatingRequest()
 {
-  String response = "{ \"temperatures\": [";
+  // Ellenőrzés, hogy tartalmazza-e az "element" paramétert a kérés
+  if (server.hasArg("name") && server.hasArg("setTemp"))
+  {
+    String name = server.arg("name"); // Az elem neve a "element" paraméterből
+    String value = server.arg("setTemp");
+    Serial.print("Element received: ");
+    Serial.println(name);
+    Serial.println(value);
 
-  // Hőmérséklet olvasása szenzoroktól
-  if (sensorCount == 0)
-  {
-    response = "{ \"temperatures\": [], \"error\": \"No sensors found.\" }";
-  }
-  else
-  {
-    sensors.requestTemperatures();
-    for (int i = 0; i < sensorCount; i++)
+    for (auto &element : hs->mergedList)
     {
-      float tempC = sensors.getTempC(sensorAddresses[i]);
-      response += String(tempC);
-      if (i < sensorCount - 1)
+      if (element->name == std::string(name.c_str()))
       {
-        response += ", ";
+        if (value == "true")
+        {
+          element->setNeedHeating(true);
+          server.send(200, "text/plain", "Heating element: " + name + " request heat, True");
+        }
+        else if (value == "false")
+        {
+          element->setNeedHeating(false);
+          server.send(200, "text/plain", "Heating element: " + name + " request heat, False");
+        }
+        server.send(400, "text/plain", "Heating element: " + name + " request heat, unknown value " + value);
+        return;
       }
     }
-    response += "], \"error\": null }";
+    // Ha a paraméter hiányzik, válaszoljunk 400-as státusszal
+    server.send(400, "text/plain", "Error: Unknown element with name" + name);
   }
-  server.send(200, "application/json", response);
+  server.send(400, "text/plain", "Error: Missing 'name' or 'setTemp' parameter.");
 }
 
 // Funkció az újraindításhoz
@@ -117,6 +126,60 @@ void handleReboot()
   else
   {
     server.send(401, "text/plain", "Unauthorized"); // Jogosulatlan válasz
+  }
+}
+
+void handleSetTemperatureTest()
+{
+  if (server.method() == HTTP_POST)
+  {
+    // Ellenőrizzük, hogy a kérés tartalmaz-e JSON adatokat
+    if (server.hasArg("plain"))
+    {
+      String body = server.arg("plain");
+      String errorMsg = "";
+
+      // Létrehozzuk a JSON dokumentumot
+      DynamicJsonDocument doc(1024);
+
+      // A JSON adat deszerializálása
+      DeserializationError error = deserializeJson(doc, body);
+
+      if (error)
+      {
+        // Ha nem sikerült deszerializálni, hibát küldünk válaszként
+        server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        return;
+      }
+
+      // Az összes szenzor értékeinek beállítása
+      for (JsonPair kv : doc.as<JsonObject>())
+      {
+        float tempValue = 0;
+
+        if (kv.value().is<float>())
+        {
+          tempValue = kv.value().as<float>();
+        }
+        else
+        {
+          // Ha nem float típusú, akkor hibát vagy más értéket kezeljünk
+          errorMsg += "Wrong float value:" + kv.value().as<String>() + ", ";
+        }
+
+        // Tároljuk a szenzor id-t és az értékét a sensorTemps térképben
+        Sensor::SensorsValue[std::string(kv.key().c_str())] = tempValue;
+      }
+
+      // Visszajelzés, hogy sikerült beállítani a hőmérsékletet
+      String response = errorMsg == "" ? "{\"status\":\"success\"}" : "{\"status\":\"" + errorMsg + "\"}";
+      server.send(errorMsg == "" ? 200 : 400, "application/json", response);
+    }
+    else
+    {
+      // Ha nincs POST body, akkor hibát küldünk
+      server.send(400, "application/json", "{\"error\":\"No data provided\"}");
+    }
   }
 }
 
@@ -199,7 +262,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 void onTimerISR()
 {
   webSocket.loop(); // Az időzítő minden hívásnál váltja az értéket
+  hs->update();
 }
+
+int val = 0;
 
 void setup()
 {
@@ -216,7 +282,10 @@ void setup()
   Wire.begin(D2, D1); // SDA: D2, SCL: D1 (ESP8266)
 
   pwmController.setupSingleDevice(Wire, 0x41); // Az alapértelmezett I2C cím: 0x40
-  pwmController.setToServoFrequency();         // Szervómotorokhoz beállított frekvencia
+  pwmController.setAllDevicesOutputsInverted();
+  pwmController.setToServoFrequency(); // Szervómotorokhoz beállított frekvencia
+  pwmController.setOutputsLowWhenDisabled();
+  pwmController.setAllChannelsDutyCycle(0, 0);
 
   hs = new HeatingSystem("/config.json");
   // NTP kliens indítása
@@ -279,6 +348,7 @@ void setup()
   // Beállítjuk a reboot végpontot
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/state", HTTP_GET, hadleStateRequest);
+  server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
 
   const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
@@ -340,7 +410,6 @@ void loop()
 
   // 5 másodperc várakozás
   delay(1000);
-
   // logMessage("Temp: %f", temperature);
   MDNS.update();
 

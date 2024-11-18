@@ -75,12 +75,13 @@ bool stringToDeviceAddress(String address, DeviceAddress &deviceAddress)
 
 void updateDsSensors()
 {
+#ifndef TESTINGOVER_API
   sensors.requestTemperatures();
   for (int i = 0; i < sensorCount; i++)
   {
     Sensor::SensorsValue[addressToString(sensorAddresses[i]).c_str()] = sensors.getTempC(sensorAddresses[i]);
   }
-
+#endif
   /* for (HeatingElement element : heatingSystemCollection)
    {
        element.update();

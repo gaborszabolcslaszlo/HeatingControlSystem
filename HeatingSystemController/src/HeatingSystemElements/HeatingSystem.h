@@ -24,6 +24,7 @@ public:
     std::vector<HeatingElement *> puffer;
     std::vector<HeatingElement *> mergedList;
 
+    std::vector<HeatingElement *> pasivElemList;
     std::vector<HeatingElement *> heatingPriorityList;
 
     std::map<std::string, float> *ptrSensorsValue;

@@ -25,24 +25,25 @@ void Kazan::checkRetourLowTemperatureProtection()
         isOverHeatProtectionActive = false;
     }
 
-    if (!isRetourProtectionActive && retourTemp < (retourTempProtValue - histValue))
+    if (isKazanActive && !isRetourProtectionActive && retourTemp < (retourTempProtValue - histValue))
     {
         logMessage("Kazán retour védelem aktiválva!\n");
         isRetourProtectionActive = true;
     }
-    else if (isRetourProtectionActive && retourTemp > (retourTempProtValue + histValue))
+    else if (isKazanActive && isRetourProtectionActive && retourTemp > (retourTempProtValue + histValue))
     {
         isRetourProtectionActive = false;
     }
 
-    if (!isKazanActive && bodyTemp > (activationThreshold - histValue))
+    if (!isKazanActive && bodyTemp > (activationThreshold + histValue))
     {
         logMessage("Kazán aktiv!\n");
         isKazanActive = true;
     }
-    else if (isKazanActive && bodyTemp < (activationThreshold + histValue))
+    else if (isKazanActive && bodyTemp < (activationThreshold - histValue))
     {
         isKazanActive = false;
+        isRetourProtectionActive = false;
     }
 }
 

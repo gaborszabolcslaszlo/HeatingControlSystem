@@ -21,6 +21,7 @@ void HeatingSystem::addRadiator(HeatingElement *element)
     radiators.push_back(element);
     mergedList.push_back(element);
     heatingPriorityList.push_back(element);
+    pasivElemList.push_back(element);
 }
 
 void HeatingSystem::addPuffer(HeatingElement *element)
@@ -126,6 +127,8 @@ void HeatingSystem::update()
 void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
 {
     Kazan *kazanPtr = static_cast<Kazan *>(kazan);
+    bool isPasiveElementNeedHeating = false;
+
     for (HeatingElement *elem : heatingPriorityList)
     {
         if (kazanPtr->getIsKazanActive())
@@ -154,6 +157,12 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                 {
                     if (kazan->canSupplyHeat(elem) && elem->getNeedHeating())
                     {
+                        for (HeatingElement *pufferPtr : puffer)
+                        {
+                            pufferPtr->setNeedHeating(false);
+                            pufferPtr->deactivate();
+                        }
+
                         elem->activate();
                         kazanPtr->activate();
                     }
@@ -181,6 +190,29 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                         elem->deactivate();
                         pufferPtr->deactivate();
                     }
+                    actPuffer->setNeedHeating(false);
+                }
+            }
+        }
+    }
+
+    if (kazanPtr->getIsKazanActive())
+    {
+        for (HeatingElement *elem : pasivElemList)
+        {
+            if (elem->getNeedHeating())
+            {
+                isPasiveElementNeedHeating = true;
+            }
+        }
+
+        if (!isPasiveElementNeedHeating)
+        {
+            for (HeatingElement *elem : puffer)
+            {
+                if (kazan->canSupplyHeat(elem))
+                {
+                    elem->setNeedHeating(true);
                 }
             }
         }

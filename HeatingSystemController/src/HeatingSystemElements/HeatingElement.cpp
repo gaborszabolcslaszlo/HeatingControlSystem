@@ -270,6 +270,7 @@ void HeatingElement::update()
     heatTransfer.calculateHeatingTransferDirection(tourSensors, retourSensors, 1.0);
 
     ElementsStateMap[name]["HT"] = std::to_string(this->heatTransfer.transferValue);
+    ElementsStateMap[name]["NH"] = this->needHeating ? "true" : "false";
 }
 
 bool HeatingElement::canSupplyHeat(HeatingElement *element)
