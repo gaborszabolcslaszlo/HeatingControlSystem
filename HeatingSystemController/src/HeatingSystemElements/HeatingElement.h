@@ -82,6 +82,8 @@ public:
     void setNeedHeating(bool needHeating_);
     static std::map<std::string, std::map<std::string, std::string>> ElementsStateMap;
 
+    HeatingElementType ElemType;
+
 protected:
     bool needHeating;
     MessageBus &messageBus;

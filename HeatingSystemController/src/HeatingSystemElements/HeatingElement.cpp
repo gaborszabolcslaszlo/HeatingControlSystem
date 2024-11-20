@@ -271,6 +271,7 @@ void HeatingElement::update()
 
     ElementsStateMap[name]["HT"] = std::to_string(this->heatTransfer.transferValue);
     ElementsStateMap[name]["NH"] = this->needHeating ? "true" : "false";
+    ElementsStateMap[name]["iA"] = this->getIsActive() ? "true" : "false";
 }
 
 bool HeatingElement::canSupplyHeat(HeatingElement *element)

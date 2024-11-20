@@ -272,20 +272,22 @@ void setup()
   // Soros port inicializálása
   Serial.begin(115200);
   Serial.flush();
+  Wire.begin(D2, D1); // SDA: D2, SCL: D1 (ESP8266)
+
+  pwmController.setupSingleDevice(Wire, 0x41); // Az alapértelmezett I2C cím: 0x40
+  pwmController.setupOutputEnablePin(D0);
+  pwmController.disableOutputs(D0);
+  pwmController.setAllDevicesOutputsInverted();
+  pwmController.setToServoFrequency(); // Szervómotorokhoz beállított frekvencia
+  pwmController.setOutputsLowWhenDisabled();
+  pwmController.setAllChannelsDutyCycle(0, 0);
+
   delay(500);
   gdbstub_init();
   Serial.println();
   logMessage("Start\n");
   // SPIFFS inicializálása és konfiguráció betöltése
   loadConfig();
-
-  Wire.begin(D2, D1); // SDA: D2, SCL: D1 (ESP8266)
-
-  pwmController.setupSingleDevice(Wire, 0x41); // Az alapértelmezett I2C cím: 0x40
-  pwmController.setAllDevicesOutputsInverted();
-  pwmController.setToServoFrequency(); // Szervómotorokhoz beállított frekvencia
-  pwmController.setOutputsLowWhenDisabled();
-  pwmController.setAllChannelsDutyCycle(0, 0);
 
   hs = new HeatingSystem("/config.json");
   // NTP kliens indítása
@@ -379,6 +381,9 @@ void setup()
   webSocket.onEvent(webSocketEvent);
 
   timer.attach(1, onTimerISR);
+
+  pwmController.enableOutputs(D0);
+  ESP.wdtEnable(5000);
 }
 
 void loop()
@@ -406,7 +411,7 @@ void loop()
 
   timeClient.update();
   updateDsSensors();
-  hs->update();
+  // hs->update();
 
   // 5 másodperc várakozás
   delay(1000);

@@ -129,6 +129,39 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
     Kazan *kazanPtr = static_cast<Kazan *>(kazan);
     bool isPasiveElementNeedHeating = false;
 
+    for (HeatingElement *elemDeact : heatingPriorityList)
+    {
+        elemDeact->deactivate();
+    }
+
+    for (HeatingElement *actPuffer : puffer)
+    {
+        actPuffer->setNeedHeating(false);
+    }
+
+    if (kazanPtr->getIsKazanActive())
+    {
+        for (HeatingElement *elem : pasivElemList)
+        {
+            if (elem->getNeedHeating())
+            {
+                isPasiveElementNeedHeating = true;
+            }
+        }
+
+        if (!isPasiveElementNeedHeating)
+        {
+            for (HeatingElement *elem : puffer)
+            {
+                elem->setNeedHeating(false);
+                if (kazan->canSupplyHeat(elem))
+                {
+                    elem->setNeedHeating(true);
+                }
+            }
+        }
+    }
+
     for (HeatingElement *elem : heatingPriorityList)
     {
         if (kazanPtr->getIsKazanActive())
@@ -150,19 +183,13 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             if (kazanPtr->getIsKazanActive())
             {
                 if (kazanPtr->getIsRetourProtectionActive())
-                {
+                { //?????? ha tobb hazan van akko nam lesz ok
                     elem->deactivatePump();
                 }
                 else
                 {
                     if (kazan->canSupplyHeat(elem) && elem->getNeedHeating())
                     {
-                        for (HeatingElement *pufferPtr : puffer)
-                        {
-                            pufferPtr->setNeedHeating(false);
-                            pufferPtr->deactivate();
-                        }
-
                         elem->activate();
                         kazanPtr->activate();
                     }
@@ -174,46 +201,34 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             }
             else
             {
-                bool isOneElement = false;
                 for (HeatingElement *actPuffer : puffer)
                 {
+
                     Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
-                    if (pufferPtr->hasStoredEnergy() && elem->getNeedHeating() && pufferPtr->canSupplyHeat(elem))
+                    // skip self check Puffer
+                    if (elem->ElemType != HeatingElementType::PUFER)
                     {
-                        logMessage("Pufferbol futes activ: %s\n", elem->name);
-                        elem->activate();
-                        pufferPtr->activate();
-                        isOneElement = true;
-                    }
-                    else if (!pufferPtr->hasStoredEnergy() || !elem->getNeedHeating() || !pufferPtr->canSupplyHeat(elem))
-                    {
-                        elem->deactivate();
-                        pufferPtr->deactivate();
-                    }
-                    actPuffer->setNeedHeating(false);
-                }
-            }
-        }
-    }
+                        logMessage("%s", actPuffer->name.c_str());
+                        if (pufferPtr->hasStoredEnergy() && elem->getNeedHeating() && pufferPtr->canSupplyHeat(elem))
+                        {
+                            logMessage("Pufferbol futes activ: %s -> %s\n", pufferPtr->name.c_str(), elem->name.c_str());
+                            elem->activate();
+                            actPuffer->activate();
+                        }
+                        /*else if (!pufferPtr->hasStoredEnergy() || !elem->getNeedHeating() || !pufferPtr->canSupplyHeat(elem))
+                        {
+                            elem->deactivate();
+                            logMessage("Deactivate: %s\n", elem->name.c_str());
 
-    if (kazanPtr->getIsKazanActive())
-    {
-        for (HeatingElement *elem : pasivElemList)
-        {
-            if (elem->getNeedHeating())
-            {
-                isPasiveElementNeedHeating = true;
-            }
-        }
-
-        if (!isPasiveElementNeedHeating)
-        {
-            for (HeatingElement *elem : puffer)
-            {
-                if (kazan->canSupplyHeat(elem))
-                {
-                    elem->setNeedHeating(true);
+                            if (!isOneElement)
+                            {
+                                actPuffer->deactivate();
+                                logMessage("Deactivate no one: %s\n", elem->name.c_str());
+                            }
+                        }*/
+                    }
                 }
+                logMessage("%s\n", elem->name.c_str());
             }
         }
     }
@@ -222,7 +237,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
 void HeatingSystem::intiHeatingSystem(const std::string &filename)
 {
     logMessage("----- int Heating System -----\n");
-    StaticJsonDocument<2048> doc; // Adjust size as necessary
+    StaticJsonDocument<3048> doc; // Adjust size as necessary
 
 #ifndef UNIT_TESTING
     File configFile = SPIFFS.open(filename.c_str(), "r");
@@ -264,7 +279,6 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
 
         for (JsonObject element : elements)
         {
-        std:
             std::string name = element["name"];
 
             if (name.empty())
@@ -304,6 +318,8 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
             default:
                 break;
             }
+
+            heatingElement->ElemType = type;
 
             // Validate and load sensors
             JsonArray sensors = element["sensors"].as<JsonArray>();

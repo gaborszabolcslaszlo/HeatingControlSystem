@@ -58,7 +58,6 @@ void Kazan::update()
     HeatingElement::update();
     HeatingElement::ElementsStateMap[name]["iOHPA"] = isOverHeatProtectionActive ? "true" : "false";
     HeatingElement::ElementsStateMap[name]["iRPA"] = isRetourProtectionActive ? "true" : "false";
-    HeatingElement::ElementsStateMap[name]["iKA"] = isKazanActive ? "true" : "false";
 }
 
 bool Kazan::getIsOverHeatProtectionActive() const { return isOverHeatProtectionActive; }
