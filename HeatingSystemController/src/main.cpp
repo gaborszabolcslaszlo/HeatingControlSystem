@@ -275,15 +275,16 @@ void setup()
   Wire.begin(D2, D1); // SDA: D2, SCL: D1 (ESP8266)
 
   pwmController.setupSingleDevice(Wire, 0x41); // Az alapértelmezett I2C cím: 0x40
-  pwmController.setupOutputEnablePin(D0);
-  pwmController.disableOutputs(D0);
+  pwmController.setToServoFrequency();         // Szervómotorokhoz beállított frekvencia
   pwmController.setAllDevicesOutputsInverted();
-  pwmController.setToServoFrequency(); // Szervómotorokhoz beállított frekvencia
-  pwmController.setOutputsLowWhenDisabled();
-  pwmController.setAllChannelsDutyCycle(0, 0);
+  pwmController.setupOutputEnablePin(D0);
+  pwmController.setOutputsHighWhenDisabled();
+  pwmController.disableOutputs(D0);
+
+  // pwmController.setAllChannelsDutyCycle(0, 0);
 
   delay(500);
-  gdbstub_init();
+  // gdbstub_init();
   Serial.println();
   logMessage("Start\n");
   // SPIFFS inicializálása és konfiguráció betöltése
@@ -293,6 +294,8 @@ void setup()
   // NTP kliens indítása
   timeClient.begin();
   timeClient.update();
+
+  WiFi.hostname(config.hostname);
 
   if (config.wifiMode == "STA+AP")
   {

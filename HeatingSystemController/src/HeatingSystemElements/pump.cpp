@@ -37,13 +37,14 @@ PumpWorkingMode PumpWorkingModeFromString(const std::string &modeStr)
 
 Pump::Pump() {}
 
-Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode)
+Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog)
 {
     this->id = id;
     this->name = name;
     this->model = model;
     this->maxControlSig = maxControlSig;
     this->minControlSig = minControlSig;
+    this->SaftyIOnumberForAnalog = SaftyIOnumberForAnalog;
     this->workingMode = PumpWorkingModeFromString(workingMode.c_str());
 }
 

@@ -39,6 +39,10 @@ HeatingElementType elementTypeFromString(const std::string &str)
     {
         return HeatingElementType::PUFER;
     }
+    else if (str == "SUNCOLLECTOR")
+    {
+        return HeatingElementType::PUFER;
+    }
     else
     {
         return HeatingElementType::UNKNOWN; // Return UNKNOWN for unrecognized strings

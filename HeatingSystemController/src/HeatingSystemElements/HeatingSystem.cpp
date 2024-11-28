@@ -31,6 +31,19 @@ void HeatingSystem::addPuffer(HeatingElement *element)
     heatingPriorityList.push_back(element);
 }
 
+void HeatingSystem::addBojler(HeatingElement *element)
+{
+    bojler.push_back(element);
+    mergedList.push_back(element);
+    heatingPriorityList.push_back(element);
+}
+
+void HeatingSystem::addSunCollector(HeatingElement *element)
+{
+    sunCollector.push_back(element);
+    mergedList.push_back(element);
+}
+
 void HeatingSystem::addHeatingElement(HeatingElement *element, std::string typeString)
 {
     HeatingElementType type = elementTypeFromString(typeString);
@@ -48,6 +61,12 @@ void HeatingSystem::addHeatingElement(HeatingElement *element, std::string typeS
         break;
     case HeatingElementType::PUFER:
         addPuffer(element);
+        break;
+    case HeatingElementType::SUNCOLLECTOR:
+        addSunCollector(element);
+        break;
+    case HeatingElementType::BOJLER:
+        addBojler(element);
         break;
 
     default:
@@ -124,11 +143,8 @@ void HeatingSystem::update()
     }
 }
 
-void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
+void HeatingSystem::cleanAllDeviceState()
 {
-    Kazan *kazanPtr = static_cast<Kazan *>(kazan);
-    bool isPasiveElementNeedHeating = false;
-
     for (HeatingElement *elemDeact : heatingPriorityList)
     {
         elemDeact->deactivate();
@@ -138,7 +154,17 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
     {
         actPuffer->setNeedHeating(false);
     }
+}
 
+void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
+{
+    Kazan *kazanPtr = static_cast<Kazan *>(kazan);
+    bool isPasiveElementNeedHeating = false;
+
+    cleanAllDeviceState();
+
+    // lekezeli azt az esetet ha nincs egyetlen elemre sem futesi igeny benyujtva nh properti az false.
+    // akkor aktivalja alapbol a puffernek ha van a rendszerben a nh flaget.
     if (kazanPtr->getIsKazanActive())
     {
         for (HeatingElement *elem : pasivElemList)
@@ -164,6 +190,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
 
     for (HeatingElement *elem : heatingPriorityList)
     {
+        // kazan allapotok ellenorzese
         if (kazanPtr->getIsKazanActive())
         {
             kazanPtr->activate();
@@ -180,6 +207,13 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
         }
         else
         {
+            // kihagya a napkolektorokat
+            if (elem->ElemType == HeatingElementType::SUNCOLLECTOR)
+            {
+                continue;
+            }
+
+            // kazan futes kezelese
             if (kazanPtr->getIsKazanActive())
             {
                 if (kazanPtr->getIsRetourProtectionActive())
@@ -188,6 +222,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                 }
                 else
                 {
+                    // elemek activalasa ha szukseges
                     if (kazan->canSupplyHeat(elem) && elem->getNeedHeating())
                     {
                         elem->activate();
@@ -201,12 +236,13 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             }
             else
             {
+                // puferbol valo futes
                 for (HeatingElement *actPuffer : puffer)
                 {
 
                     Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
                     // skip self check Puffer
-                    if (elem->ElemType != HeatingElementType::PUFER)
+                    if (elem->ElemType != HeatingElementType::PUFER && elem->ElemType != HeatingElementType::SUNCOLLECTOR)
                     {
                         logMessage("%s", actPuffer->name.c_str());
                         if (pufferPtr->hasStoredEnergy() && elem->getNeedHeating() && pufferPtr->canSupplyHeat(elem))
@@ -215,20 +251,41 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                             elem->activate();
                             actPuffer->activate();
                         }
-                        /*else if (!pufferPtr->hasStoredEnergy() || !elem->getNeedHeating() || !pufferPtr->canSupplyHeat(elem))
-                        {
-                            elem->deactivate();
-                            logMessage("Deactivate: %s\n", elem->name.c_str());
-
-                            if (!isOneElement)
-                            {
-                                actPuffer->deactivate();
-                                logMessage("Deactivate no one: %s\n", elem->name.c_str());
-                            }
-                        }*/
                     }
                 }
                 logMessage("%s\n", elem->name.c_str());
+            }
+
+            for (HeatingElement *sunColElemPtr : sunCollector)
+            {
+                SunCollector *sunColPtr = static_cast<SunCollector *>(sunColElemPtr);
+                // skip self check Puffer
+                logMessage("%s", sunColPtr->name.c_str());
+                bool isOneElement = false;
+
+                // ha egy elem keri a hot es van a napellemben
+                if (sunColPtr->hasStoredEnergy() && elem->getNeedHeating() && sunColPtr->canSupplyHeat(elem))
+                {
+                    logMessage("Napelembol activ: %s -> %s\n", sunColPtr->name.c_str(), elem->name.c_str());
+                    elem->activate();
+                    sunColPtr->activate();
+                    isOneElement = true;
+                }
+
+                // pufferbe iranyitja a hot, az elsobe amely fogani tudja
+                if (!isOneElement)
+                {
+                    for (HeatingElement *sunHeatPuffer : puffer)
+                    {
+                        Puffer *pufferPtr = static_cast<Puffer *>(sunHeatPuffer);
+                        if (sunColPtr->hasStoredEnergy() && sunColPtr->canSupplyHeat(sunHeatPuffer))
+                        {
+                            elem->activate();
+                            sunColPtr->activate();
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
@@ -315,6 +372,16 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 heatingElement = new Puffer(messageBus, name);
                 break;
             }
+            case HeatingElementType::SUNCOLLECTOR:
+            {
+                heatingElement = new SunCollector(messageBus, name);
+                break;
+            }
+            case HeatingElementType::BOJLER:
+            {
+                heatingElement = new Bojler(messageBus, name);
+                break;
+            }
             default:
                 break;
             }
@@ -370,8 +437,13 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 int minControlSig = pump["minControlSig"];
                 std::string workingMode = pump["workingMode"];
                 int IOnumber = pump["IOnumber"];
+                int SaftyIOnumberForAnalog = -1;
+                if (pump.containsKey("SaftyIOnumberForAnalog"))
+                {
+                    int SaftyIOnumberForAnalog = pump["SaftyIOnumberForAnalog"];
+                }
 
-                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode);
+                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode, SaftyIOnumberForAnalog);
                 heatingElement->addPump(newPump);
             }
 

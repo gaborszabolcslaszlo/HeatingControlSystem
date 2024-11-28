@@ -10,6 +10,7 @@
 #include "MessageBus.h"
 #include "Bojler.h"
 #include "Radiator.h"
+#include "suncollector.h"
 #include "common.h"
 #include <fstream> // Fájlok olvasásához és írásához
 #include <iostream>
@@ -22,6 +23,8 @@ public:
     std::vector<HeatingElement *> kazan;
     std::vector<HeatingElement *> radiators;
     std::vector<HeatingElement *> puffer;
+    std::vector<HeatingElement *> bojler;
+    std::vector<HeatingElement *> sunCollector;
     std::vector<HeatingElement *> mergedList;
 
     std::vector<HeatingElement *> pasivElemList;
@@ -39,6 +42,10 @@ public:
 
     void addPuffer(HeatingElement *element);
 
+    void addBojler(HeatingElement *element);
+
+    void addSunCollector(HeatingElement *element);
+
     void addHeatingElement(HeatingElement *element, std::string typeString);
 
     bool validate();
@@ -53,6 +60,10 @@ public:
 
 private:
     MessageBus messageBus;
+
+    void cleanAllDeviceState();
+
+    bool isSystemFullOk;
 };
 
 #endif

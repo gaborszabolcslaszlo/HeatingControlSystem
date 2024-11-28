@@ -20,6 +20,7 @@ struct Configuration
   String APSSID;
   String APPassword;
   String LastLogFileName;
+  String hostname;
 };
 
 // Globális konfigurációs változó
@@ -74,10 +75,12 @@ void loadConfig()
   config.APSSID = configContent["AP_SSID"].as<String>();
   config.APPassword = configContent["AP_Password"].as<String>();
   config.wifiMode = configContent["WifiMode"].as<String>();
+  config.hostname = configContent["hostname"].as<String>();
 
   logMessage("Config betöltve:\n");
   logMessage("  WiFi SSID: %s\n", config.wifiSSID);
   logMessage("  WiFi Password: %s\n", config.wifiPassword);
+  logMessage("  WiFi hostname: %s\n", config.hostname);
 }
 
 // Konfiguráció mentése fájlba

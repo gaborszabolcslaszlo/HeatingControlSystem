@@ -16,6 +16,7 @@ enum class HeatingElementType
     RADIATOR,
     BOJLER,
     PUFER, // Used for error handling
+    SUNCOLLECTOR,
     UNKNOWN
 };
 
