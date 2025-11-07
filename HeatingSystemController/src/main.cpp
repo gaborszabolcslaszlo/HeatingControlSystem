@@ -13,6 +13,7 @@
 #include "temp_sensors.h"
 #include "HeatingSystemElements/HeatingSystem.h"
 #include <Ticker.h>
+#include <FS.h>
 HeatingSystem *hs;
 
 Ticker timer;
@@ -75,6 +76,66 @@ String IOMapToJson(const std::map<int, int> &intMap,
   serializeJson(jsonDoc, jsonString);
 
   return jsonString;
+}
+
+void handleFile()
+{
+  String path = server.uri();
+  if (path.endsWith("/"))
+    path += "index.html"; // főoldal
+  String contentType = getContentType(path);
+
+  if (SPIFFS.exists(path))
+  {
+    File file = SPIFFS.open(path, "r");
+    server.streamFile(file, contentType);
+    file.close();
+  }
+  else
+  {
+    // Ha nem létezik: Angular routing -> index.html visszaadása
+    File file = SPIFFS.open("/index.html", "r");
+    server.streamFile(file, "text/html");
+    file.close();
+  }
+}
+
+void handleWebUserInterfaceRequest()
+{
+  String path = server.uri(); // pl. "/" vagy "/style.css"
+
+  // Ha "/" érkezik, az index.html legyen
+  if (path == "/")
+  {
+    path = "/index.html";
+  }
+
+  String fullPath = "" + path; // a data/browser/ mappa
+  String msg = "Serving: " + fullPath + "\n";
+  logMessage(msg.c_str());
+
+  if (!SPIFFS.exists(fullPath))
+  {
+    server.send(404, "text/plain", "File not found");
+    return;
+  }
+  File file = SPIFFS.open(fullPath, "r");
+
+  // MIME típus meghatározása a fájl kiterjesztés alapján
+  String contentType = "text/plain";
+  if (path.endsWith(".html"))
+    contentType = "text/html";
+  else if (path.endsWith(".css"))
+    contentType = "text/css";
+  else if (path.endsWith(".js"))
+    contentType = "application/javascript";
+  else if (path.endsWith(".png"))
+    contentType = "image/png";
+  else if (path.endsWith(".jpg") || path.endsWith(".jpeg"))
+    contentType = "image/jpeg";
+
+  server.streamFile(file, contentType);
+  file.close();
 }
 
 // Hőmérséklet API kezelő
@@ -355,6 +416,14 @@ void setup()
   server.on("/state", HTTP_GET, hadleStateRequest);
   server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
 
+  server.on("/", HTTP_GET, handleWebUserInterfaceRequest);
+  server.on("/styles.css", HTTP_GET, handleWebUserInterfaceRequest);
+  server.on("/polyfills.js", HTTP_GET, handleWebUserInterfaceRequest);
+  server.on("/main.js", HTTP_GET, handleWebUserInterfaceRequest);
+
+  // Alap handler: minden kérés ide jön
+  server.onNotFound(handleFile);
+
   const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
   // ask server to track these headers
@@ -387,6 +456,16 @@ void setup()
 
   pwmController.enableOutputs(D0);
   ESP.wdtEnable(5000);
+
+  // ideiglenesen automatikusan elinditja a fureskerelemet
+  for (auto &element : hs->mergedList)
+  {
+    std::string name = "PadloKozos";
+    if (element->name == std::string(name.c_str()))
+    {
+      element->setNeedHeating(true);
+    }
+  }
 }
 
 void loop()

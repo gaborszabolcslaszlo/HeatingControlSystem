@@ -14,7 +14,7 @@ void Kazan::checkRetourLowTemperatureProtection()
     float tourTemp = HeatingElement::getTourTemperature();
     float retourTemp = HeatingElement::getReTourTemperature();
     float bodyTemp = HeatingElement::getBodyTemperature();
-    float histValue = 1.5;
+    float histValue = 1.0;
     if (!isOverHeatProtectionActive && bodyTemp > (tourTempProtValue + histValue))
     {
         logMessage("Kazán tulmelegedes védelem aktiválva!\n");

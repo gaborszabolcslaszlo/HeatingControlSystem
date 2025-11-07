@@ -1,27 +1,27 @@
 {
-    "wifiSSID": "GaborEniko",
-    "wifiPassword": "eniko1980",
+    "wifiSSID": "WifiRBack01",
+    "wifiPassword": "ncc17011",
     "AP_SSID": "kazanAP",
     "hostname": "Kazanvezerlo",
     "AP_Password": "12345678",
-    "WifiMode": "STA",
+    "WifiMode": "AP",
     "HeatingSystem": {
         "KAZAN": [
             {
                 "name": "Kazan",
-                "retourTempProtValue": 40.0,
+                "retourTempProtValue": 39.0,
                 "tourTempProtValue": 80.0,
-                "activationThreshold": 20.0,
+                "activationThreshold": 30.0,
                 "sensors": [
                     {
                         "model": "DS12B20",
                         "position": "body",
-                        "id": "28C6D394000000000CC"
+                        "id": "28CC526B000000000EE"
                     },
                     {
                         "model": "DS12B20",
                         "position": "tour",
-                        "id": "28AEA743D4C27A7F",
+                        "id": "2881506B00000000052",
                         "offset": -1
                     },
                     {
@@ -34,115 +34,35 @@
                 "pumps": [
                     {
                         "name": "main",
-                        "model": "groudfos",
+                        "model": "ferro",
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "ON/OFF",
-                        "IOnumber": 1,
-                        "SaftyIOnumberForAnalog": 9
-                    },
-                    {
-                        "name": "mainalternativ",
-                        "model": "groudfos",
-                        "maxControlSig": 100,
-                        "minControlSig": 0,
-                        "workingMode": "PWM",
-                        "IOnumber": 2
-                    }
-                ],
-                "valves": [
-                    {
-                        "name": "Valve1",
-                        "maxControlSig": 100,
-                        "minControlSig": 0,
-                        "workingMode": "ON/OFF"
+                        "IOnumber": 7
                     }
                 ]
             }
         ],
         "RADIATOR": [
             {
-                "name": "Radiators",
-                "sensors": [
-                    {
-                        "model": "DS12B20",
-                        "position": "retour",
-                        "id": "28-000007602b94",
-                        "offset": 0.1
-                    },
-                    {
-                        "model": "DS12B20",
-                        "position": "tour",
-                        "id": "28-000007602b95"
-                    }
-                ],
+                "name": "PadloKozos",
+                "sensors": [],
                 "pumps": [
                     {
-                        "name": "main",
-                        "model": "groudfos",
+                        "name": "kozos",
+                        "model": "stream",
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "ON/OFF",
-                        "IOnumber": 3
+                        "IOnumber": 6
                     },
                     {
-                        "name": "mainalternativ",
-                        "model": "groudfos",
-                        "maxControlSig": 100,
-                        "minControlSig": 0,
-                        "workingMode": "PWM",
-                        "IOnumber": 4
-                    }
-                ],
-                "valves": [
-                    {
-                        "name": "Valve1",
-                        "maxControlSig": 100,
-                        "minControlSig": 0,
-                        "workingMode": "ON/OFF"
-                    }
-                ]
-            }
-        ],
-        "PUFER": [
-            {
-                "name": "Puffer1",
-                "sensors": [
-                    {
-                        "model": "DS12B20",
-                        "position": "body",
-                        "id": "28-000007602b96"
-                    },
-                    {
-                        "model": "DS12B20",
-                        "position": "body",
-                        "id": "28-000007602b97"
-                    }
-                ],
-                "pumps": [
-                    {
-                        "name": "main",
-                        "model": "groudfos",
+                        "name": "osztok",
+                        "model": "ferro",
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "ON/OFF",
                         "IOnumber": 5
-                    },
-                    {
-                        "name": "mainalternativ",
-                        "model": "groudfos",
-                        "maxControlSig": 100,
-                        "minControlSig": 0,
-                        "workingMode": "PWM",
-                        "IOnumber": 6
-                    }
-                ],
-                "valves": [
-                    {
-                        "name": "Valve1",
-                        "maxControlSig": 100,
-                        "minControlSig": 0,
-                        "workingMode": "ON/OFF"
                     }
                 ]
             }

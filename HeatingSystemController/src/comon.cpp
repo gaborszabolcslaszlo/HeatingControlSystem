@@ -6,6 +6,7 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 600000); // 1 órás időelto
 
 // Log fájl neve
 const char *logFileName = "/log.txt";
+const int maxLogFiles = 5; // maximális log fájlok száma
 
 // Tartalom típus meghatározása fájlnév alapján
 String getContentType(String filename)
@@ -40,31 +41,95 @@ void createLogFile()
     File logFile = SPIFFS.open(logFileName, "w");
 }
 
-// Logger funkció, ami hasonló a printf()-hez
+const size_t maxLogFileSize = 1024; // Max méret bájtban (pl. 1 kB)
+
+String getFormattedDate()
+{
+    // timeClient.getEpochTime() adja az aktuális időt másodpercben
+    unsigned long epochTime = timeClient.getEpochTime();
+
+    // Átalakítás éve, hónap, nap formátumba
+    int year = 1970 + epochTime / 31556926;                   // kb
+    int month = (epochTime % 31556926) / 2629743 + 1;         // hónap 1-12
+    int day = ((epochTime % 31556926) % 2629743) / 86400 + 1; // nap 1-31
+
+    char dateStr[11];
+    sprintf(dateStr, "%04d-%02d-%02d", year, month, day);
+    return String(dateStr);
+}
+
+// Segédfüggvény: aktuális dátummal ellátott log fájl neve
+String getLogFileName()
+{
+    // Példa formátum: /log_2025-10-26.txt
+    String dateStr = getFormattedDate(); // pl. "2025-10-26"
+    return String("/log_") + dateStr + ".txt";
+}
+
+void enforceMaxLogFiles()
+{
+    Dir dir = SPIFFS.openDir("/log"); // ESP8266: könyvtár listázása
+    std::vector<String> logFiles;
+
+    // Összegyűjtjük a fájlneveket
+    while (dir.next())
+    {
+        logFiles.push_back(dir.fileName());
+    }
+
+    // Ha több fájl van, mint a max, töröljük a legrégebbit
+    while (logFiles.size() >= maxLogFiles)
+    {
+        // A név szerinti rendezés → a legkisebb név = legrégebbi fájl
+        std::sort(logFiles.begin(), logFiles.end());
+        SPIFFS.remove(logFiles[0]);
+        logFiles.erase(logFiles.begin());
+    }
+}
+
 void logMessage(const char *format, ...)
 {
-    // Variadic argumentek kezelése
     char buffer[256];
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    // Időbélyeg lekérése
-    String timestamp = timeClient.getFormattedTime();
-
-    // Összeállított üzenet
-    String logEntry = String("[") + timestamp + String("] ") + String(buffer); // + String("\n");
+    String timestamp = timeClient.getFormattedTime(); // pl. "12:34:56"
+    String logEntry = String("[") + timestamp + String("] ") + String(buffer);
 
     // 1. Kiíratás Serial-ra
     Serial.print(logEntry);
 
     // 2. Kiíratás fájlba (SPIFFS)
-    File logFile = SPIFFS.open(logFileName, "a"); // "a" mód: hozzáfűzés
+    String currentLogFile = getLogFileName();
+    File logFile = SPIFFS.open(currentLogFile, "a");
     if (logFile)
     {
-        logFile.print(logEntry);
-        logFile.close();
+        if (logFile.size() + logEntry.length() > maxLogFileSize)
+        {
+            logFile.close();
+            enforceMaxLogFiles();
+            // Ha a fájl túl nagy, létrehozunk egy új fájlnevet időbélyeggel
+            String newLogFile = currentLogFile;
+            int counter = 1;
+            while (SPIFFS.exists(newLogFile))
+            {
+                newLogFile = currentLogFile.substring(0, currentLogFile.length() - 4) + "_" + String(counter) + ".txt";
+                counter++;
+            }
+            currentLogFile = newLogFile;
+            logFile = SPIFFS.open(currentLogFile, "a");
+        }
+        if (logFile)
+        {
+            logFile.print(logEntry);
+            logFile.close();
+        }
+        else
+        {
+            Serial.println("Nem sikerült megnyitni az új log fájlt.");
+        }
     }
     else
     {
