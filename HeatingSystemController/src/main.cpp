@@ -244,6 +244,75 @@ void handleSetTemperatureTest()
   }
 }
 
+void handleDeviceInfo()
+{
+  FSInfo fs;
+  SPIFFS.info(fs);
+
+  String json = "{";
+
+  // Uptime
+  json += "\"uptimeMs\":" + String(millis()) + ",";
+
+  // WiFi
+  json += "\"wifi\":{";
+  json += "\"ssid\":\"" + WiFi.SSID() + "\",";
+  json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+  json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+  json += "\"gateway\":\"" + WiFi.gatewayIP().toString() + "\",";
+  json += "\"subnet\":\"" + WiFi.subnetMask().toString() + "\",";
+  json += "\"dns\":\"" + WiFi.dnsIP().toString() + "\",";
+  json += "\"mac\":\"" + WiFi.macAddress() + "\",";
+  json += "\"hostname\":\"" + WiFi.hostname() + "\"";
+  json += "},";
+
+  // Chip info
+  json += "\"chip\":{";
+  json += "\"chipId\":" + String(ESP.getChipId()) + ",";
+  json += "\"cpuFreqMHz\":" + String(ESP.getCpuFreqMHz()) + ",";
+  json += "\"sdkVersion\":\"" + String(ESP.getSdkVersion()) + "\",";
+  json += "\"coreVersion\":\"" + String(ESP.getCoreVersion()) + "\"";
+  json += "},";
+
+  // Flash info
+  json += "\"flash\":{";
+  json += "\"chipSize\":" + String(ESP.getFlashChipSize()) + ",";
+  json += "\"realChipSize\":" + String(ESP.getFlashChipRealSize()) + ",";
+  json += "\"chipSpeed\":" + String(ESP.getFlashChipSpeed()) + ",";
+  json += "\"chipMode\":" + String(ESP.getFlashChipMode()) + ",";
+  json += "\"sketchSize\":" + String(ESP.getSketchSize()) + ",";
+  json += "\"freeSketchSpace\":" + String(ESP.getFreeSketchSpace());
+  json += "},";
+
+  // SPIFFS info
+  json += "\"spiffs\":{";
+  json += "\"total\":" + String(fs.totalBytes) + ",";
+  json += "\"used\":" + String(fs.usedBytes) + ",";
+  json += "\"free\":" + String(fs.totalBytes - fs.usedBytes) + ",";
+  json += "\"blockSize\":" + String(fs.blockSize) + ",";
+  json += "\"pageSize\":" + String(fs.pageSize) + ",";
+  json += "\"maxOpenFiles\":" + String(fs.maxOpenFiles) + ",";
+  json += "\"maxPathLength\":" + String(fs.maxPathLength);
+  json += "},";
+
+  // RAM / heap
+  json += "\"heap\":{";
+  json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"maxFreeBlock\":" + String(ESP.getMaxFreeBlockSize()) + ",";
+  json += "\"fragmentation\":" + String(ESP.getHeapFragmentation());
+  json += "},";
+
+  // Reset info
+  json += "\"reset\":{";
+  json += "\"reason\":\"" + String(ESP.getResetReason()) + "\",";
+  json += "\"info\":\"" + String(ESP.getResetInfo()) + "\"";
+  json += "}";
+
+  json += "}";
+
+  server.send(200, "application/json", json);
+}
+
 void hadleStateRequest()
 {
   // JSON string létrehozása
@@ -415,6 +484,7 @@ void setup()
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/state", HTTP_GET, hadleStateRequest);
   server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
+  server.on("/deviceInfo", HTTP_GET, handleDeviceInfo);
 
   server.on("/", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/styles.css", HTTP_GET, handleWebUserInterfaceRequest);

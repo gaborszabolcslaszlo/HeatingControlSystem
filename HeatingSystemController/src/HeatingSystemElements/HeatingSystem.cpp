@@ -253,7 +253,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                         }
                     }
                 }
-                logMessage("%s\n", elem->name.c_str());
+                // logMessage("%s\n", elem->name.c_str());
             }
 
             for (HeatingElement *sunColElemPtr : sunCollector)

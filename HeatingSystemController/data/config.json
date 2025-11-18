@@ -1,10 +1,10 @@
 {
-    "wifiSSID": "WifiRBack01",
-    "wifiPassword": "ncc17011",
+    "wifiSSID": "GaborEniko",
+    "wifiPassword": "eniko1980",
     "AP_SSID": "kazanAP",
     "hostname": "Kazanvezerlo",
     "AP_Password": "12345678",
-    "WifiMode": "AP",
+    "WifiMode": "STA+AP",
     "HeatingSystem": {
         "KAZAN": [
             {

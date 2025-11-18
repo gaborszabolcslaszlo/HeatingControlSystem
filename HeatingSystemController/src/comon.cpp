@@ -41,7 +41,7 @@ void createLogFile()
     File logFile = SPIFFS.open(logFileName, "w");
 }
 
-const size_t maxLogFileSize = 1024; // Max méret bájtban (pl. 1 kB)
+const size_t maxLogFileSize = 10240; // Max méret bájtban (pl. 10 kB)
 
 String getFormattedDate()
 {
@@ -68,13 +68,16 @@ String getLogFileName()
 
 void enforceMaxLogFiles()
 {
-    Dir dir = SPIFFS.openDir("/log"); // ESP8266: könyvtár listázása
+    Dir dir = SPIFFS.openDir("/"); // ESP8266: könyvtár listázása
     std::vector<String> logFiles;
 
     // Összegyűjtjük a fájlneveket
     while (dir.next())
     {
-        logFiles.push_back(dir.fileName());
+        if (dir.fileName().startsWith("/log_"))
+        {
+            logFiles.push_back(dir.fileName());
+        }
     }
 
     // Ha több fájl van, mint a max, töröljük a legrégebbit
@@ -140,6 +143,7 @@ void logMessage(const char *format, ...)
 boolean sendFile(String path)
 {
     File file = SPIFFS.open(path, "r");
+    logMessage("sendFile() path: %s\n", path.c_str());
     if (!file)
     {
         return false;
@@ -154,20 +158,36 @@ boolean sendFile(String path)
 
 void handleLogs()
 {
-    if (server.method() == HTTP_GET)
+    // /logs?name=filename.txt  → fájl tartalma
+    if (server.hasArg("name"))
     {
-        // Válasz a jelenlegi konfiguráció JSON formátumban
-        /* StaticJsonDocument<512> jsonBuffer;
-         jsonBuffer["wifiSSID"] = config.wifiSSID;
-         jsonBuffer["wifiPassword"] = config.wifiPassword;
+        String fileName = server.arg("name");
 
-         String response;
-         serializeJson(jsonBuffer, response);
-         server.send(200, "application/json", response);*/
-
-        sendFile("/log.txt");
+        if (!sendFile(fileName))
+        {
+            server.send(404, "text/plain", "File Not Found");
+        }
     }
+
+    // Ha nincs name paraméter → listázzuk a /log mappát
+    Dir dir = SPIFFS.openDir("/");
+    String json = "[";
+    bool first = true;
+
+    while (dir.next())
+    {
+        if (!first)
+            json += ",";
+        first = false;
+
+        json += "\"" + dir.fileName() + "\"";
+    }
+
+    json += "]";
+
+    server.send(200, "application/json", json);
 }
+
 #else
 void logMessage(const char *format, ...)
 {
