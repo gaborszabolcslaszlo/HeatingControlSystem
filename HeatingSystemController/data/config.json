@@ -5,6 +5,7 @@
     "hostname": "Kazanvezerlo",
     "AP_Password": "12345678",
     "WifiMode": "STA+AP",
+    "comType": "API",
     "HeatingSystem": {
         "KAZAN": [
             {

@@ -391,7 +391,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 
 void onTimerISR()
 {
-  webSocket.loop(); // Az időzítő minden hívásnál váltja az értéket
+  if (config.communicationTypeWebApp == "WS")
+  {
+    webSocket.loop(); // Az időzítő minden hívásnál váltja az értéket
+  }
   hs->update();
 }
 
@@ -519,8 +522,11 @@ void setup()
   setupSensors();
 
   // WebSocket szerver indítása
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
+  if (config.communicationTypeWebApp == "WS")
+  {
+    webSocket.begin();
+    webSocket.onEvent(webSocketEvent);
+  }
 
   timer.attach(1, onTimerISR);
 
@@ -571,7 +577,7 @@ void loop()
   MDNS.update();
 
   // Ha hitelesítés sikeres, folyamatosan küldhetünk adatokat
-  if (isAuthenticated && isDataNew)
+  if (config.communicationTypeWebApp == "WS" && isAuthenticated && isDataNew)
   {
     isDataNew = false;
     String data = IOMapToJson(IOMap, Sensor::SensorsValue, HeatingElement::ElementsStateMap);

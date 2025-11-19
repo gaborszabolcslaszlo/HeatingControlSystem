@@ -21,6 +21,7 @@ struct Configuration
   String APPassword;
   String LastLogFileName;
   String hostname;
+  String communicationTypeWebApp; // WS - web socket, API - rest api
 };
 
 // Globális konfigurációs változó
@@ -76,7 +77,7 @@ void loadConfig()
   config.APPassword = configContent["AP_Password"].as<String>();
   config.wifiMode = configContent["WifiMode"].as<String>();
   config.hostname = configContent["hostname"].as<String>();
-
+  config.communicationTypeWebApp = configContent["comType"].as<String>();
   logMessage("Config betöltve:\n");
   logMessage("  WiFi SSID: %s\n", config.wifiSSID);
   logMessage("  WiFi Password: %s\n", config.wifiPassword);
@@ -192,10 +193,19 @@ void handleFileUpload()
 // Az API kezelő függvény, amely a /configuration végpontot kezeli
 void handleConfiguration()
 {
+  // server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
 
   Serial.println("HTTP config request:");
+
+  if (server.method() == HTTP_OPTIONS)
+  {
+    // Preflight kérelemre nincs body, csak fejlécek
+    server.send(204); // No Content
+    return;
+  }
+
   if (server.method() == HTTP_GET)
   {
     Serial.println("itt");
