@@ -14,6 +14,8 @@
 #include "HeatingSystemElements/HeatingSystem.h"
 #include <Ticker.h>
 #include <FS.h>
+#include "esp_routes.h"
+
 HeatingSystem *hs;
 
 Ticker timer;
@@ -31,6 +33,8 @@ const int max_attempts = 1;
 int attempt = 0;
 
 bool isDataNew = false;
+
+int cntrWifiTry = 0;
 
 // I2C címe a PCA9685-nek (alapértelmezett 0x40)
 PCA9685 pwmController;
@@ -110,30 +114,63 @@ void handleWebUserInterfaceRequest()
     path = "/index.html";
   }
 
-  String fullPath = "" + path; // a data/browser/ mappa
+  String fullPath = "" + path; // a PROGMEM/SPIFFS útvonal
   String msg = "Serving: " + fullPath + "\n";
   logMessage(msg.c_str());
+
+  // MIME típus meghatározása
+  String contentType = "text/plain";
+  bool isGzipped = false;
+
+  if (path.endsWith(".html"))
+  {
+    contentType = "text/html";
+  }
+  else if (path.endsWith(".css"))
+  {
+    contentType = "text/css";
+    fullPath += ".gz";
+    isGzipped = true;
+  }
+  else if (path.endsWith(".js"))
+  {
+    contentType = "application/javascript";
+    fullPath += ".gz";
+    isGzipped = true;
+  }
+  else if (path.endsWith(".png"))
+  {
+    contentType = "image/png";
+  }
+  else if (path.endsWith(".jpg") || path.endsWith(".jpeg"))
+  {
+    contentType = "image/jpeg";
+  }
+  else if (path.endsWith(".svg"))
+  {
+    contentType = "image/svg+xml";
+  }
 
   if (!SPIFFS.exists(fullPath))
   {
     server.send(404, "text/plain", "File not found");
     return;
   }
+
+  msg = "Send file: " + fullPath + "\n";
+  logMessage(msg.c_str());
+
+  if (isGzipped)
+  {
+    // server.sendHeader("Content-Encoding", "gzip");
+    server.sendHeader("Cache-Control", "public, max-age=3600");
+    server.sendHeader("ETag", "v1"); // egyszerű statikus ETag
+    server.sendHeader("Connection", "keep-alive");
+  }
+  // server.sendHeader("Cache-Control", "max-age=31536000");
+  server.sendHeader("Keep-Alive", "timeout=200, max=100");
+
   File file = SPIFFS.open(fullPath, "r");
-
-  // MIME típus meghatározása a fájl kiterjesztés alapján
-  String contentType = "text/plain";
-  if (path.endsWith(".html"))
-    contentType = "text/html";
-  else if (path.endsWith(".css"))
-    contentType = "text/css";
-  else if (path.endsWith(".js"))
-    contentType = "application/javascript";
-  else if (path.endsWith(".png"))
-    contentType = "image/png";
-  else if (path.endsWith(".jpg") || path.endsWith(".jpeg"))
-    contentType = "image/jpeg";
-
   server.streamFile(file, contentType);
   file.close();
 }
@@ -480,9 +517,9 @@ void setup()
   server.on("/heatingRequest", HTTP_GET, handleHeatingRequest);
   server.on("/logs", HTTP_GET, handleLogs);
   server.on("/configuration", HTTP_GET, handleConfiguration);
-  server.on("/configuration", HTTP_POST, handleConfiguration);
-  server.on("/upload", HTTP_POST, []()
-            { server.send(200, "text/plain", "File Uploaded Successfully"); }, handleFileUpload);
+  // server.on("/configuration", HTTP_POST, handleConfiguration);
+  server.on("/configuration", HTTP_POST, []()
+            { server.send(200, "text/plain", "File Uploaded Successfully"); }, handleConfigFileUpload);
   // Beállítjuk a reboot végpontot
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/state", HTTP_GET, hadleStateRequest);
@@ -493,6 +530,8 @@ void setup()
   server.on("/styles.css", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/polyfills.js", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/main.js", HTTP_GET, handleWebUserInterfaceRequest);
+
+  setupWebRoutes(server);
 
   // Alap handler: minden kérés ide jön
   server.onNotFound(handleFile);
@@ -550,8 +589,12 @@ void loop()
   {
     if (WiFi.status() != WL_CONNECTED)
     {
-      Serial.print("Csatlakozás a WiFi-hez...\n");
-      WiFi.begin(config.wifiSSID, config.wifiPassword); // Próbálkozzunk csatlakozni
+      if (cntrWifiTry == 60)
+      {
+        Serial.print("Csatlakozás a WiFi-hez...\n");
+        WiFi.begin(config.wifiSSID, config.wifiPassword); // Próbálkozzunk csatlakozni
+      }
+      cntrWifiTry++;
     }
   }
 

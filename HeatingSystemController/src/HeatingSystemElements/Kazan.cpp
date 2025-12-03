@@ -35,12 +35,12 @@ void Kazan::checkRetourLowTemperatureProtection()
         isRetourProtectionActive = false;
     }
 
-    if (!isKazanActive && bodyTemp > (activationThreshold + histValue))
+    if (!isKazanActive && tourTemp > (activationThreshold))
     {
         logMessage("Kazán aktiv!\n");
         isKazanActive = true;
     }
-    else if (isKazanActive && bodyTemp < (activationThreshold - histValue))
+    else if (isKazanActive && tourTemp < (activationThreshold))
     {
         isKazanActive = false;
         isRetourProtectionActive = false;

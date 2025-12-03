@@ -150,7 +150,7 @@ void handleFileUploadByPlanText()
   }
 }
 
-void handleFileUpload()
+int handleFileUpload()
 {
 
   HTTPUpload &upload = server.upload();
@@ -166,7 +166,7 @@ void handleFileUpload()
     if (!file)
     {
       logMessage("Failed to open file for writing\n");
-      return;
+      return -1;
     }
     file.close();
   }
@@ -182,11 +182,26 @@ void handleFileUpload()
     else
     {
       logMessage("Failed to open file for writing during upload %s\n", upload.filename);
+      return -1;
     }
   }
   else if (upload.status == UPLOAD_FILE_END)
   {
     logMessage("File successfully uploaded: %s\n", upload.filename);
+  }
+
+  return 0;
+}
+
+void handleConfigFileUpload()
+{
+  int error = handleFileUpload();
+  if (error == 0)
+  {
+    // reboot
+    // ESP.restart();
+    // ESP.reset();
+    loadConfig();
   }
 }
 
@@ -226,24 +241,7 @@ void handleConfiguration()
 
   else if (server.method() == HTTP_POST)
   {
-    if (server.hasHeader("Content-Type"))
-    {
-      String contentType = server.header("Content-Type");
-      logMessage("Content-Type: %s\n", contentType.c_str());
-
-      if (contentType.indexOf("application/json") >= 0)
-      {
-        handleFileUploadByPlanText();
-      }
-      else if (contentType.indexOf("multipart/form-data") >= 0)
-      {
-        handleFileUpload();
-      }
-      else
-      {
-        server.send(500, "text/plain", "Missing header Content-Type");
-      }
-    }
+    handleFileUpload();
   }
 
   server.client().flush();
