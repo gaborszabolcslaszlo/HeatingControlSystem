@@ -175,6 +175,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             }
         }
 
+        // ha nincsen mashova tenni a hot
         if (!isPasiveElementNeedHeating)
         {
             for (HeatingElement *elem : puffer)
@@ -186,26 +187,39 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                 }
             }
         }
+        else
+        {
+            // parhuzamosan puffer toltes homerseklet folott
+            for (HeatingElement *elem : puffer)
+            {
+                Puffer *pufferElem = static_cast<Puffer *>(elem);
+                elem->setNeedHeating(false);
+                if (kazan->canSupplyHeat(elem) && pufferElem->LinkedHeatSource_ActivationTourTemp > kazan->getTourTemperature())
+                {
+                    elem->setNeedHeating(true);
+                }
+            }
+        }
+    }
+
+    // kazan allapotok ellenorzese
+    if (kazanPtr->getIsKazanActive())
+    {
+        kazanPtr->activate();
+    }
+    else
+    {
+        kazanPtr->deactivate();
     }
 
     for (HeatingElement *elem : heatingPriorityList)
     {
-        // kazan allapotok ellenorzese
-        if (kazanPtr->getIsKazanActive())
-        {
-            kazanPtr->activate();
-        }
-        else
-        {
-            kazanPtr->deactivate();
-        }
-
         if (kazanPtr->getIsOverHeatProtectionActive())
         {
             elem->activate();
             kazanPtr->activate();
         }
-        else
+        else // Normal mod
         {
             // kihagya a napkolektorokat
             if (elem->ElemType == HeatingElementType::SUNCOLLECTOR)
@@ -217,7 +231,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             if (kazanPtr->getIsKazanActive())
             {
                 if (kazanPtr->getIsRetourProtectionActive())
-                { //?????? ha tobb hazan van akko nam lesz ok
+                { //?????? ha tobb kazan van akko nam lesz ok
                     elem->deactivatePump();
                 }
                 else
@@ -369,7 +383,10 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
             }
             case HeatingElementType::PUFER:
             {
-                heatingElement = new Puffer(messageBus, name);
+                std::string linkedHeatSourceName = element["linkedHeatSourceName"];
+                float LinkedHeatSource_ActivationTourTemp = element["LinkedHeatSource_ActivationTourTemp"];
+
+                heatingElement = new Puffer(messageBus, name, linkedHeatSourceName, LinkedHeatSource_ActivationTourTemp);
                 break;
             }
             case HeatingElementType::SUNCOLLECTOR:

@@ -1,6 +1,10 @@
 #include "Puffer.h"
 
-Puffer::Puffer(MessageBus &bus, std::string name) : HeatingElement(bus, name) {}
+Puffer::Puffer(MessageBus &bus, std::string name, std::string linkedHeatSourceName, float LinkedHeatSource_ActivationTourTemp) : HeatingElement(bus, name)
+{
+    this->linkedHeatSourceName = linkedHeatSourceName;
+    this->LinkedHeatSource_ActivationTourTemp = LinkedHeatSource_ActivationTourTemp;
+}
 
 // Puffer egyedi vezérlése
 void Puffer::moveEnergyToRadiators(float radiatorRequestTemp)

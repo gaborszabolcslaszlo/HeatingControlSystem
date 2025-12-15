@@ -30,9 +30,9 @@ os.makedirs(target_dir, exist_ok=True)
 # másold át a teljes könyvtárat
 if os.path.exists(source_dir):
     # először töröld a régi mockdata mappát (ha van)
-   # if os.path.exists(target_dir):
-    #    shutil.rmtree(target_dir)
-   # shutil.copytree(source_dir, target_dir)
+    if os.path.exists(target_dir):
+        shutil.rmtree(target_dir)
+    shutil.copytree(source_dir, target_dir)
     print(f"✅ Web interface copied from {source_dir} to {target_dir}")
 else:
     print(f"⚠️ Source directory not found: {source_dir}")

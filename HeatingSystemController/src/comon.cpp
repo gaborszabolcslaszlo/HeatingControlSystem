@@ -158,6 +158,17 @@ boolean sendFile(String path)
 
 void handleLogs()
 {
+
+    if (server.hasArg("act"))
+    {
+        String fileName = getLogFileName();
+
+        if (!sendFile(fileName))
+        {
+            server.send(404, "text/plain", "File Not Found");
+        }
+    }
+
     // /logs?name=filename.txt  → fájl tartalma
     if (server.hasArg("name"))
     {

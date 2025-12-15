@@ -1,0 +1,20 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Generate Statechart Code",
+            "type": "codegenerator",
+            "generator": {
+                "statechart": "stateMachine/state.scm",
+                "features": {
+                    "Outlet": {
+                        "targetProject": ".",
+                        "targetFolder": "src-gen"
+                    }
+                },
+                "type": "create::cpp"
+            },
+            "group": "build"
+        }
+    ]
+}
