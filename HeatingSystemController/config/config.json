@@ -1,10 +1,10 @@
 {
-    "wifiSSID": "GaborEniko",
-    "wifiPassword": "eniko1980",
+    "wifiSSID": "WifiFront",
+    "wifiPassword": "ncc1701*",
     "AP_SSID": "kazanAP",
     "hostname": "Kazanvezerlo",
     "AP_Password": "12345678",
-    "WifiMode": "STA+AP",
+    "WifiMode": "AP",
     "comType": "API",
     "HeatingSystem": {
         "KAZAN": [
