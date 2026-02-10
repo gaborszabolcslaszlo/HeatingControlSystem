@@ -158,10 +158,10 @@ int handleFileUpload()
   if (upload.status == UPLOAD_FILE_START)
   {
     String filename = "/" + upload.filename;
-    logMessage("Uploading file: %s\n", filename);
+    logMessage("Uploading file: %s\n", filename.c_str());
 
     File file = SPIFFS.open(filename, "w");
-    logMessage("Createing file: %s\n", filename);
+    logMessage("Createing file: %s\n", filename.c_str());
 
     if (!file)
     {
@@ -181,13 +181,13 @@ int handleFileUpload()
     }
     else
     {
-      logMessage("Failed to open file for writing during upload %s\n", upload.filename);
+      logMessage("Failed to open file for writing during upload %s\n", upload.filename.c_str());
       return -1;
     }
   }
   else if (upload.status == UPLOAD_FILE_END)
   {
-    logMessage("File successfully uploaded: %s\n", upload.filename);
+    logMessage("File successfully uploaded: %s\n", upload.filename.c_str());
   }
 
   return 0;
@@ -201,7 +201,7 @@ void handleConfigFileUpload()
     // reboot
     // ESP.restart();
     // ESP.reset();
-    loadConfig();
+    // loadConfig();
   }
 }
 

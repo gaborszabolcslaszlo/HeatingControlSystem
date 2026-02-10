@@ -519,8 +519,7 @@ void setup()
   server.on("/configuration", HTTP_GET, handleConfiguration);
   // server.on("/configuration", HTTP_POST, handleConfiguration);
   server.on("/configuration", HTTP_POST, []()
-            { server.send(200, "text/plain", "File Uploaded Successfully");
-              hs = new HeatingSystem("/config.json"); }, handleConfigFileUpload);
+            { server.send(200, "text/plain", "File Uploaded Successfully"); }, handleConfigFileUpload);
   // Beállítjuk a reboot végpontot
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/state", HTTP_GET, hadleStateRequest);
