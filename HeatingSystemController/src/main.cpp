@@ -502,6 +502,10 @@ void setup()
 
   server.keepAlive(true);
   server.enableCORS(true);
+  server.setContentLength(1000);
+
+  Serial.setDebugOutput(true);
+
   // HTTPS beállítása
   // server.getServer()
   // .setRSACert(new X509List(cert), new PrivateKey(private_key));
@@ -509,8 +513,11 @@ void setup()
   // CORS fejléc beállítása
   server.on("/configuration", HTTP_OPTIONS, []()
             {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.sendHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Content-Length, Accept, Origin");
   server.send(200); });
 
   // API végpontok
@@ -518,9 +525,10 @@ void setup()
   server.on("/logs", HTTP_GET, handleLogs);
   server.on("/configuration", HTTP_GET, handleConfiguration);
   // server.on("/configuration", HTTP_POST, handleConfiguration);
+
   server.on("/configuration", HTTP_POST, []()
-            { server.send(200, "text/plain", "File Uploaded Successfully");
-              hs = new HeatingSystem("/config.json"); }, handleConfigFileUpload);
+            {     Serial.printf("Free heap: %d\n", ESP.getFreeHeap()); server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "text/plain", "File Uploaded Successfully"); }, handleFileUpload);
   // Beállítjuk a reboot végpontot
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/state", HTTP_GET, hadleStateRequest);
@@ -540,7 +548,7 @@ void setup()
   const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
   // ask server to track these headers
-  server.collectHeaders(headerkeys, headerkeyssize);
+  // server.collectHeaders(headerkeys, headerkeyssize);
 
   // Webszerver indítása
   // Start the mDNS responder with the domain "myesp.local"
@@ -599,17 +607,19 @@ void loop()
     }
   }
 
-  try
+  // try
   {
     // A kód, amely hibát okozhat
-    server.handleClient();
+    yield();
+    // server.handleClient();
+    yield();
   }
-  catch (const std::exception &e)
-  {
-    // Hiba kezelése
-    Serial.println("Kivétel történt:");
-    Serial.println(e.what());
-  }
+  /* catch (const std::exception &e)
+   {
+     // Hiba kezelése
+     Serial.println("Kivétel történt:");
+     Serial.println(e.what());
+   }*/
 
   timeClient.update();
   updateDsSensors();

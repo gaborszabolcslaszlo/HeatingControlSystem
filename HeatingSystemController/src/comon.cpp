@@ -8,6 +8,8 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 600000); // 1 órás időelto
 const char *logFileName = "/log.txt";
 const int maxLogFiles = 5; // maximális log fájlok száma
 
+char buffer[256];
+
 // Tartalom típus meghatározása fájlnév alapján
 String getContentType(String filename)
 {
@@ -41,7 +43,7 @@ void createLogFile()
     File logFile = SPIFFS.open(logFileName, "w");
 }
 
-const size_t maxLogFileSize = 10240; // Max méret bájtban (pl. 10 kB)
+const size_t maxLogFileSize = 1024; // Max méret bájtban (pl. 10 kB)
 
 String getFormattedDate()
 {
@@ -90,54 +92,69 @@ void enforceMaxLogFiles()
     }
 }
 
+void formatTime(char *buf, size_t len)
+{
+    unsigned long t = timeClient.getEpochTime();
+
+    int h = (t % 86400L) / 3600;
+    int m = (t % 3600) / 60;
+    int s = t % 60;
+
+    snprintf(buf, len, "%02d:%02d:%02d", h, m, s);
+}
+
 void logMessage(const char *format, ...)
 {
-    char buffer[256];
+    char msg[128];
+    char timebuf[9];
+
     va_list args;
     va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
+    vsnprintf(msg, sizeof(msg), format, args);
     va_end(args);
 
-    String timestamp = timeClient.getFormattedTime(); // pl. "12:34:56"
-    String logEntry = String("[") + timestamp + String("] ") + String(buffer);
+    // formatTime(timebuf, sizeof(timebuf));
 
-    // 1. Kiíratás Serial-ra
-    Serial.print(logEntry);
+    Serial.print('[');
+    // Serial.print(timebuf);
+    Serial.print("] ");
+    Serial.println(msg);
 
     // 2. Kiíratás fájlba (SPIFFS)
-    String currentLogFile = getLogFileName();
-    File logFile = SPIFFS.open(currentLogFile, "a");
-    if (logFile)
-    {
-        if (logFile.size() + logEntry.length() > maxLogFileSize)
-        {
-            logFile.close();
-            enforceMaxLogFiles();
-            // Ha a fájl túl nagy, létrehozunk egy új fájlnevet időbélyeggel
-            String newLogFile = currentLogFile;
-            int counter = 1;
-            while (SPIFFS.exists(newLogFile))
-            {
-                newLogFile = currentLogFile.substring(0, currentLogFile.length() - 4) + "_" + String(counter) + ".txt";
-                counter++;
-            }
-            currentLogFile = newLogFile;
-            logFile = SPIFFS.open(currentLogFile, "a");
-        }
-        if (logFile)
-        {
-            logFile.print(logEntry);
-            logFile.close();
-        }
-        else
-        {
-            Serial.println("Nem sikerült megnyitni az új log fájlt.");
-        }
-    }
-    else
-    {
-        Serial.println("Nem sikerült megnyitni a log fájlt.");
-    }
+    /* String currentLogFile = getLogFileName();
+     File logFile = SPIFFS.open(currentLogFile, "a");
+     if (logFile)
+     {
+         if (logFile.size() + logEntry.length() > maxLogFileSize)
+         {
+             logFile.close();
+             enforceMaxLogFiles();
+             // Ha a fájl túl nagy, létrehozunk egy új fájlnevet időbélyeggel
+             String newLogFile = currentLogFile;
+             int counter = 1;
+             while (SPIFFS.exists(newLogFile))
+             {
+                 newLogFile = currentLogFile.substring(0, currentLogFile.length() - 4) + "_" + String(counter) + ".txt";
+                 counter++;
+             }
+             currentLogFile = newLogFile;
+             logFile = SPIFFS.open(currentLogFile, "a");
+         }
+         if (logFile)
+         {
+             logFile.print(logEntry);
+             logFile.close();
+         }
+         else
+         {
+             Serial.println("Nem sikerült megnyitni az új log fájlt.");
+         }
+     }
+     else
+     {
+         Serial.println("Nem sikerült megnyitni a log fájlt.");
+     }
+     */
 }
 
 boolean sendFile(String path)

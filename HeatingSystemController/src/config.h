@@ -150,58 +150,59 @@ void handleFileUploadByPlanText()
   }
 }
 
-int handleFileUpload()
+void handleFileUpload()
 {
-
+  Serial.println("Uploading file, begin");
   HTTPUpload &upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START)
   {
     String filename = "/" + upload.filename;
-    logMessage("Uploading file: %s\n", filename);
+    // logMessage("Uploading file: %s\n", filename);
 
     File file = SPIFFS.open(filename, "w");
-    logMessage("Createing file: %s\n", filename);
 
     if (!file)
     {
-      logMessage("Failed to open file for writing\n");
-      return -1;
+      // logMessage("Failed to open file for writing\n");
+      //  return -1;
     }
     file.close();
   }
   else if (upload.status == UPLOAD_FILE_WRITE)
   {
-    logMessage("Writing data to file: %s\n", logMessage);
+    // logMessage("Writing data to file: %s\n", logMessage);
     File file = SPIFFS.open("/" + upload.filename, "a");
     if (file)
     {
       file.write(upload.buf, upload.currentSize);
       file.close();
+      yield();
     }
     else
     {
-      logMessage("Failed to open file for writing during upload %s\n", upload.filename);
-      return -1;
+      // logMessage("Failed to open file for writing during upload %s\n", upload.filename);
+      // return -1;
     }
   }
   else if (upload.status == UPLOAD_FILE_END)
   {
-    logMessage("File successfully uploaded: %s\n", upload.filename);
+    // logMessage("File successfully uploaded: %s\n", upload.filename);
   }
 
-  return 0;
+  // return 0;
 }
 
 void handleConfigFileUpload()
 {
-  int error = handleFileUpload();
-  if (error == 0)
+  Serial.print("xxxxxx>");
+  // int error = handleFileUpload();
+  if (0 == 0)
   {
     // reboot
     // ESP.restart();
     // ESP.reset();
-    loadConfig();
+    // loadConfig();
   }
 }
 
@@ -212,7 +213,7 @@ void handleConfiguration()
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  Serial.println("HTTP config request:");
+  logMessage("HTTP config request:");
 
   if (server.method() == HTTP_OPTIONS)
   {
@@ -241,6 +242,7 @@ void handleConfiguration()
 
   else if (server.method() == HTTP_POST)
   {
+    Serial.println("config uploading....");
     handleFileUpload();
   }
 

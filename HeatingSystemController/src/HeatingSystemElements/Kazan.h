@@ -17,13 +17,15 @@ public:
     void onMessageReceived(const std::string &message) override;
     void update();
 
+    void incPumpSpeed();
+
     bool getIsOverHeatProtectionActive() const;
 
     bool getIsRetourProtectionActive() const;
 
     bool getIsKazanActive() const;
 
-    
+    void UpdateConfig(float retourTempProtValue, float tourTempProtValue, float activationThreshold);
 
 private:
     float retourTempProtValue;

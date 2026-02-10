@@ -1,10 +1,10 @@
 {
     "wifiSSID": "GaborEniko",
-    "wifiPassword": "eniko1980*",
+    "wifiPassword": "eniko1980",
     "AP_SSID": "kazanAP",
     "hostname": "Kazanvezerlo",
     "AP_Password": "12345678",
-    "WifiMode": "STA+AP",
+    "WifiMode": "STA",
     "comType": "API",
     "HeatingSystem": {
         "KAZAN": [
@@ -64,6 +64,75 @@
                         "minControlSig": 0,
                         "workingMode": "ON/OFF",
                         "IOnumber": 5
+                    }
+                ]
+            }
+        ],
+        "PUFER": [
+            {
+                "name": "Puffer950l",
+                "linkedHeatSourceName": "",
+                "LinkedHeatSource_ActivationTourTemp": 60,
+                "sensors": [
+                    {
+                        "model": "DS12B20",
+                        "position": "tour",
+                        "id": "28000B96A00000000029",
+                        "level": 100
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "2814576B00000000059",
+                        "offset": -1,
+                        "level": 80
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "286AD6940000000003F",
+                        "offset": -1.5,
+                        "level": 60
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "286E00683000000000003",
+                        "offset": -1.5,
+                        "level": 40
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "287EDB9400000000054",
+                        "offset": -1.5,
+                        "level": 20
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "retour",
+                        "id": "28899B43D44400637",
+                        "offset": -1.5,
+                        "level": 0
+                    }
+                ],
+                "pumps": [
+                    {
+                        "name": "mainActive",
+                        "model": "ferro",
+                        "maxControlSig": 100,
+                        "minControlSig": 0,
+                        "workingMode": "ON/OFF",
+                        "IOnumber": 4
+                    },
+                    {
+                        "name": "main",
+                        "model": "ferro",
+                        "maxControlSig": 100,
+                        "minControlSig": 0,
+                        "workingMode": "ON/OFF",
+                        "IOnumber": 3,
+                        "dischargepump": true
                     }
                 ]
             }

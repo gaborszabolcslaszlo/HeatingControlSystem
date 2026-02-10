@@ -26,13 +26,14 @@ public:
     int maxControlSig;
     int minControlSig;
     int SaftyIOnumberForAnalog;
+    bool discargepump;
 
     PumpWorkingMode workingMode;
     int id;
 
     Pump();
 
-    Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog);
+    Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog, bool discargepump);
 
     int getControlSignal() const;
 

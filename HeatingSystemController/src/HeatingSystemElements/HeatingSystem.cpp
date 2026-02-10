@@ -153,6 +153,8 @@ void HeatingSystem::cleanAllDeviceState()
     for (HeatingElement *actPuffer : puffer)
     {
         actPuffer->setNeedHeating(false);
+        Puffer *puferPtr = static_cast<Puffer *>(actPuffer);
+        puferPtr->discharge(false);
     }
 }
 
@@ -181,10 +183,8 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             for (HeatingElement *elem : puffer)
             {
                 elem->setNeedHeating(false);
-                if (kazan->canSupplyHeat(elem))
-                {
-                    elem->setNeedHeating(true);
-                }
+                Puffer *pufferElem = static_cast<Puffer *>(elem);
+                pufferElem->chargeFromSource(kazan);
             }
         }
         else
@@ -193,11 +193,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             for (HeatingElement *elem : puffer)
             {
                 Puffer *pufferElem = static_cast<Puffer *>(elem);
-                elem->setNeedHeating(false);
-                if (kazan->canSupplyHeat(elem) && pufferElem->LinkedHeatSource_ActivationTourTemp > kazan->getTourTemperature())
-                {
-                    elem->setNeedHeating(true);
-                }
+                pufferElem->chargeFromSource(kazan);
             }
         }
     }
@@ -214,6 +210,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
 
     for (HeatingElement *elem : heatingPriorityList)
     {
+        // Overheat!!!
         if (kazanPtr->getIsOverHeatProtectionActive())
         {
             elem->activate();
@@ -231,7 +228,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             if (kazanPtr->getIsKazanActive())
             {
                 if (kazanPtr->getIsRetourProtectionActive())
-                { //?????? ha tobb kazan van akko nam lesz ok
+                { //?????? ha tobb kazan van akko nem lesz ok
                     elem->deactivatePump();
                 }
                 else
@@ -263,7 +260,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                         {
                             logMessage("Pufferbol futes activ: %s -> %s\n", pufferPtr->name.c_str(), elem->name.c_str());
                             elem->activate();
-                            actPuffer->activate();
+                            pufferPtr->discharge(true);
                         }
                     }
                 }
@@ -308,7 +305,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
 void HeatingSystem::intiHeatingSystem(const std::string &filename)
 {
     logMessage("----- int Heating System -----\n");
-    StaticJsonDocument<3048> doc; // Adjust size as necessary
+    // StaticJsonDocument<3048> doc; // Adjust size as necessary
 
 #ifndef UNIT_TESTING
     File configFile = SPIFFS.open(filename.c_str(), "r");
@@ -422,7 +419,18 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 {
                     offset = 0.0;
                 }
-                Sensor newSensor(model, position, id, offset);
+
+                int level;
+                if (sensor.containsKey("level"))
+                {
+                    level = sensor["level"];
+                }
+                else
+                {
+                    level = 100;
+                }
+
+                Sensor newSensor(model, position, id, offset, level);
                 if (newSensor.validate())
                 {
                     heatingElement->addSensor(newSensor);
@@ -452,7 +460,15 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 std::string model = pump["model"];
                 int maxControlSig = pump["maxControlSig"];
                 int minControlSig = pump["minControlSig"];
+
+                bool dischargePump = false;
+                if (pump.containsKey("dischargepump"))
+                {
+                    dischargePump = pump["dischargepump"];
+                }
+
                 std::string workingMode = pump["workingMode"];
+
                 int IOnumber = pump["IOnumber"];
                 int SaftyIOnumberForAnalog = -1;
                 if (pump.containsKey("SaftyIOnumberForAnalog"))
@@ -460,7 +476,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                     int SaftyIOnumberForAnalog = pump["SaftyIOnumberForAnalog"];
                 }
 
-                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode, SaftyIOnumberForAnalog);
+                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode, SaftyIOnumberForAnalog, dischargePump);
                 heatingElement->addPump(newPump);
             }
 

@@ -30,8 +30,8 @@ SensorPosition stringToPosition(const std::string &positionStr)
 
 Sensor::Sensor() {}
 
-Sensor::Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset)
-    : model(model), position(position), id(id), offset(offset)
+Sensor::Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset, int levelMark)
+    : model(model), position(position), id(id), offset(offset), levelMark(levelMark)
 {
 }
 

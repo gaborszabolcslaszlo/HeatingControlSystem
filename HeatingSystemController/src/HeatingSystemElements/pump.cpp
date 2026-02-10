@@ -37,7 +37,7 @@ PumpWorkingMode PumpWorkingModeFromString(const std::string &modeStr)
 
 Pump::Pump() {}
 
-Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog)
+Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog, bool discargepump)
 {
     this->id = id;
     this->name = name;
@@ -46,6 +46,7 @@ Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int m
     this->minControlSig = minControlSig;
     this->SaftyIOnumberForAnalog = SaftyIOnumberForAnalog;
     this->workingMode = PumpWorkingModeFromString(workingMode.c_str());
+    this->discargepump = discargepump;
 }
 
 int Pump::getControlSignal() const
@@ -56,7 +57,14 @@ int Pump::getControlSignal() const
 // Setter metódus
 void Pump::setControlSignal(int value)
 {
-    controlSignal = value;
+    if (value > 100)
+    {
+        controlSignal = 100;
+    }
+    else
+    {
+        controlSignal = value;
+    }
 }
 
 bool Pump::validate()

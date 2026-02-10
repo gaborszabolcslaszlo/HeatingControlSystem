@@ -4,6 +4,21 @@
 
 std::map<std::string, std::map<std::string, std::string>> HeatingElement::ElementsStateMap;
 
+std::vector<HeatingElement *> HeatingElement::allElements;
+
+std::vector<HeatingElement *> filterHeatingElements(std::function<bool(HeatingElement *)> predicate)
+{
+    std::vector<HeatingElement *> result;
+
+    std::copy_if(
+        HeatingElement::allElements.begin(),
+        HeatingElement::allElements.end(),
+        std::back_inserter(result),
+        predicate);
+
+    return result;
+}
+
 std::string elementTypeToString(HeatingElementType type)
 {
     switch (type)
@@ -53,6 +68,27 @@ HeatingElement::HeatingElement(MessageBus &bus, const std::string name) : messag
 {
     messageBus.subscribe(name, [this](const std::string &msg)
                          { this->onMessageReceived(msg); });
+    allElements.push_back(this);
+}
+
+std::vector<HeatingElement *> getAllActiveElements()
+{
+    auto activeAndHeating = filterHeatingElements(
+        [](HeatingElement *e)
+        {
+            return e->isActive;
+        });
+    return activeAndHeating;
+}
+
+std::vector<HeatingElement *> getAllNeedHeatingElements()
+{
+    auto activeAndHeating = filterHeatingElements(
+        [](HeatingElement *e)
+        {
+            return e->getNeedHeating();
+        });
+    return activeAndHeating;
 }
 
 void HeatingElement::activatePump()
@@ -68,6 +104,36 @@ void HeatingElement::deactivatePump()
     for (Pump &pump : pumps)
     {
         pump.setControlSignal(0); // Hívjuk meg a függvényt minden szenzorra
+    }
+}
+
+void HeatingElement::setPumpControlSinal(int value)
+{
+    if (value < 0)
+    {
+        for (Pump &pump : DischargePumps)
+        {
+            pump.setControlSignal(abs(value));
+        }
+    }
+    else
+    {
+        for (Pump &pump : pumps)
+        {
+            pump.setControlSignal(value);
+        }
+    }
+
+    if (value == 0)
+    {
+        for (Pump &pump : DischargePumps)
+        {
+            pump.setControlSignal(0);
+        }
+        for (Pump &pump : pumps)
+        {
+            pump.setControlSignal(0);
+        }
     }
 }
 
@@ -97,7 +163,14 @@ void HeatingElement::addSensor(Sensor sensor)
 
 void HeatingElement::addPump(Pump pump)
 {
-    pumps.push_back(pump);
+    if (pump.discargepump)
+    {
+        DischargePumps.push_back(pump);
+    }
+    else
+    {
+        pumps.push_back(pump);
+    }
 }
 
 void HeatingElement::addValve(Valve valve)

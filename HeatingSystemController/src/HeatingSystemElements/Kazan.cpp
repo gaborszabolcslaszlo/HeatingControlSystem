@@ -9,6 +9,14 @@ Kazan::Kazan(MessageBus &bus, std::string name, float retourTempProtValue, float
     this->activationThreshold = activationThreshold;
 }
 
+void Kazan::UpdateConfig(float retourTempProtValue, float tourTempProtValue, float activationThreshold)
+{
+    logMessage("Kazán Update config!!!!\n");
+    this->retourTempProtValue = retourTempProtValue;
+    this->tourTempProtValue = tourTempProtValue;
+    this->activationThreshold = activationThreshold;
+}
+
 void Kazan::checkRetourLowTemperatureProtection()
 {
     float tourTemp = HeatingElement::getTourTemperature();
@@ -56,8 +64,23 @@ void Kazan::update()
 {
     checkRetourLowTemperatureProtection();
     HeatingElement::update();
+    if (isRetourProtectionActive)
+    {
+        // incPumpSpeed();
+    }
     HeatingElement::ElementsStateMap[name]["iOHPA"] = isOverHeatProtectionActive ? "true" : "false";
     HeatingElement::ElementsStateMap[name]["iRPA"] = isRetourProtectionActive ? "true" : "false";
+}
+
+void Kazan::incPumpSpeed()
+{
+    std::for_each(
+        pumps.begin(),
+        pumps.end(),
+        [](Pump &e)
+        {
+            e.setControlSignal(e.getControlSignal() + 10);
+        });
 }
 
 bool Kazan::getIsOverHeatProtectionActive() const { return isOverHeatProtectionActive; }

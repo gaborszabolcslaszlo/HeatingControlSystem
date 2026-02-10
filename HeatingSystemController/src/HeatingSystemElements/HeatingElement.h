@@ -28,10 +28,16 @@ HeatingElementType elementTypeFromString(const std::string &str);
 class HeatingElement
 {
 public:
+    static std::vector<HeatingElement *> allElements;
+    static std::map<std::string, std::map<std::string, std::string>> ElementsStateMap;
+
+    std::vector<HeatingElement *> filterHeatingElements(std::function<bool(HeatingElement *)> predicate);
+
     std::string name;
     bool isActive; // Állapotjelző, hogy az elem éppen aktív-e
     std::vector<Sensor> sensors;
     std::vector<Pump> pumps;
+    std::vector<Pump> DischargePumps;
     std::vector<Valve> valves;
 
     std::vector<Sensor *> tourSensors;
@@ -62,7 +68,7 @@ public:
 
     float getReTourTemperature();
 
-    float getBodyTemperature();
+    virtual float getBodyTemperature();
 
     void classifySensors();
 
@@ -79,9 +85,12 @@ public:
 
     virtual bool canSupplyHeat(HeatingElement *element);
 
+    void setPumpControlSinal(int value);
+
     bool getNeedHeating() const;
     void setNeedHeating(bool needHeating_);
-    static std::map<std::string, std::map<std::string, std::string>> ElementsStateMap;
+
+    std::vector<HeatingElement *> getAllNeedHeatingElements();
 
     HeatingElementType ElemType;
 

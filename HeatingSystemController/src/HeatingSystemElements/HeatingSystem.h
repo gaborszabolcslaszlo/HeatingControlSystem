@@ -64,6 +64,8 @@ private:
     void cleanAllDeviceState();
 
     bool isSystemFullOk;
+
+    StaticJsonDocument<3048> doc;
 };
 
 #endif

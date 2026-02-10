@@ -34,10 +34,11 @@ public:
     float temperature;
     static std::map<std::string, float> SensorsValue;
     float offset;
+    int levelMark; // %of level ex puffer storage
 
     Sensor();
 
-    Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset);
+    Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset, int levelMark = 100);
 
     void print() const;
 
