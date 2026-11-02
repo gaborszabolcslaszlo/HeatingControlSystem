@@ -37,7 +37,7 @@ PumpWorkingMode PumpWorkingModeFromString(const std::string &modeStr)
 
 Pump::Pump() {}
 
-Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog)
+Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog, bool dischargepump, PID pid)
 {
     this->id = id;
     this->name = name;
@@ -46,6 +46,8 @@ Pump::Pump(int id, std::string name, std::string model, int maxControlSig, int m
     this->minControlSig = minControlSig;
     this->SaftyIOnumberForAnalog = SaftyIOnumberForAnalog;
     this->workingMode = PumpWorkingModeFromString(workingMode.c_str());
+    this->dischargepump = dischargepump;
+    this->pid_c = pid;
 }
 
 int Pump::getControlSignal() const
@@ -56,14 +58,17 @@ int Pump::getControlSignal() const
 // Setter metódus
 void Pump::setControlSignal(int value)
 {
-    controlSignal = value;
+    if (!pid_c.enabled && !pid_c.initialized)
+    {
+        controlSignal = value;
+    }
 }
 
 bool Pump::validate()
 {
     if (name.empty() || model.empty() || workingMode != PumpWorkingMode::UNKNOWN)
     {
-        logMessage("Error: Pump name, model, or working mode is missing.");
+        logError("Error: Pump name, model, or working mode is missing.");
         return false;
     }
     return true;
@@ -71,13 +76,13 @@ bool Pump::validate()
 
 void Pump::print()
 {
-    logMessage("        Pump:\n");
-    logMessage("            Name: %s\n", name.c_str());
-    logMessage("            Model: %s\n", model.c_str());
-    logMessage("            Max Control Signal: %s\n", std::to_string(maxControlSig).c_str());
-    logMessage("            Min Control Signal: %s\n", std::to_string(minControlSig).c_str());
-    logMessage("            Working Mode: %s \n", PumpWorkingModeToString(workingMode).c_str());
-    logMessage("            IOid: %s\n", std::to_string(id).c_str());
+    logDebug("        Pump:\n");
+    logDebug("            Name: %s\n", name.c_str());
+    logDebug("            Model: %s\n", model.c_str());
+    logDebug("            Max Control Signal: %d\n", maxControlSig);
+    logDebug("            Min Control Signal: %d\n", minControlSig);
+    logDebug("            Working Mode: %s \n", PumpWorkingModeToString(workingMode).c_str());
+    logDebug("            IOid: %d\n", id);
 }
 
 void Pump::update()
@@ -88,6 +93,36 @@ void Pump::update()
     }
     if (workingMode == PumpWorkingMode::PWM)
     {
+        if (pid_c.allparamok && pid_c.enabled)
+        {
+            float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
+            controlSignal = pid_c.compute(pid_c.setPointConfig, tempValue);
+        }
         writePwmIO(id, controlSignal);
+    }
+}
+
+void Pump::enable()
+{
+    if (workingMode == PumpWorkingMode::ONOFF)
+    {
+        setControlSignal(100);
+    }
+    if (workingMode == PumpWorkingMode::PWM)
+    {
+        float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
+        pid_c.setEnabled(true, tempValue);
+    }
+}
+void Pump::disable(bool skipPidPump)
+{
+    if (workingMode == PumpWorkingMode::ONOFF)
+    {
+        setControlSignal(0);
+    }
+    if (!skipPidPump && workingMode == PumpWorkingMode::PWM)
+    {
+        float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
+        pid_c.setEnabled(false, tempValue);
     }
 }

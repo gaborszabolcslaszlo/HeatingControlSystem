@@ -17,7 +17,7 @@ void saveState()
 
     File file = SPIFFS.open("/" + "state.json", "w");
     if (!file) {
-        logMessage("Nem sikerült megnyitni a state.json fájlt írásra.");
+        logError("Nem sikerült megnyitni a state.json fájlt írásra.");
         return;
     }
 

@@ -1,4 +1,7 @@
 #include "Sensor.h"
+#include <cstdio>
+
+std::map<std::string, Sensor::Location> Sensor::LocationsById;
 
 // Utility function to convert SensorPosition enum to string for Serial printing
 std::string positionToString(SensorPosition pos)
@@ -28,22 +31,87 @@ SensorPosition stringToPosition(const std::string &positionStr)
     return SensorPosition::UNKNOWN; // Return Invalid for any other string
 };
 
-Sensor::Sensor() {}
-
-Sensor::Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset)
-    : model(model), position(position), id(id), offset(offset)
+Sensor::Sensor()
+    : temperature(0.0f), offset(0.0f), level(0)
 {
+}
+
+Sensor::Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset, int level)
+    : model(model), position(position), id(id), offset(offset), level(level)
+{
+}
+
+std::string Sensor::describeId(const std::string &id)
+{
+    auto location = LocationsById.find(id);
+    if (location == LocationsById.end())
+    {
+        return "unknown sensor";
+    }
+
+    std::string description = location->second.elementName + "." +
+                              ::positionToString(location->second.position);
+    if (location->second.level != 0)
+    {
+        description += "(level=" + std::to_string(location->second.level) + ")";
+    }
+    return description;
+}
+
+void Sensor::describeId(const std::string &id, char *buffer, size_t bufferSize)
+{
+    if (buffer == nullptr || bufferSize == 0)
+    {
+        return;
+    }
+
+    auto location = LocationsById.find(id);
+    if (location == LocationsById.end())
+    {
+        snprintf(buffer, bufferSize, "unknown sensor");
+        return;
+    }
+
+    const char *position = "unknown";
+    switch (location->second.position)
+    {
+    case SensorPosition::TOUR:
+        position = "tour";
+        break;
+    case SensorPosition::RETOUR:
+        position = "retour";
+        break;
+    case SensorPosition::BODY:
+        position = "body";
+        break;
+    default:
+        break;
+    }
+    if (location->second.level != 0)
+    {
+        snprintf(buffer, bufferSize, "%s.%s(level=%d)",
+                 location->second.elementName.c_str(), position, location->second.level);
+    }
+    else
+    {
+        snprintf(buffer, bufferSize, "%s.%s",
+                 location->second.elementName.c_str(), position);
+    }
 }
 
 void Sensor::print() const
 {
-    logMessage("        Sensor: \n");
-    logMessage("            Model: %s\n", model.c_str());
-    logMessage("            Position: %s\n", positionToString(position).c_str());
-    logMessage("            ID: %s\n", id.c_str());
+    logDebug("        Sensor: \n");
+    logDebug("            Model: %s\n", model.c_str());
+    logDebug("            Position: %s\n", positionToString(position).c_str());
+    logDebug("            ID: %s\n", id.c_str());
     if (offset != 0.0)
     {
-        logMessage("            Offset: %f\n", offset);
+        logDebug("            Offset: %f\n", offset);
+    }
+    if (level != 0)
+    {
+        logDebug("            Level: %d\n", level);
     }
 }
 
@@ -51,7 +119,7 @@ bool Sensor::validate() const
 {
     if (model.empty() || id.empty() || position == SensorPosition::UNKNOWN)
     {
-        logMessage("Error: Sensor model, id, or position is invalid.");
+        logError("Error: Sensor model, id, or position is invalid.");
         return false;
     }
     return true;
@@ -72,7 +140,10 @@ float Sensor::getSensorTemperature(const Sensor *sensor)
 // Setter for temperature.
 void Sensor::setTemperature(float temp)
 {
-    temperature = temp + offset;
+    if (temp > -100.0) // noise filtering
+    {
+        temperature = temp + offset;
+    }
 }
 
 #ifdef RNADOM_DATA

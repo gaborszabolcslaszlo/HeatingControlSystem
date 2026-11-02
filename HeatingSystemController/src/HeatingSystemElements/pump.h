@@ -4,6 +4,8 @@
 #include <string>
 #include "common.h"
 #include "../comon.h"
+#include "Controllers/pid.h"
+#include "Sensor.h"
 
 enum class PumpWorkingMode
 {
@@ -23,6 +25,7 @@ class Pump
 public:
     std::string name;
     std::string model;
+    bool dischargepump;
     int maxControlSig;
     int minControlSig;
     int SaftyIOnumberForAnalog;
@@ -32,7 +35,7 @@ public:
 
     Pump();
 
-    Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog);
+    Pump(int id, std::string name, std::string model, int maxControlSig, int minControlSig, std::string workingMode, int SaftyIOnumberForAnalog, bool dischargepump, PID pid);
 
     int getControlSignal() const;
 
@@ -45,7 +48,14 @@ public:
 
     void update();
 
+    void run();
+
+    void enable();
+
+    void disable(bool skipPidPump = true);
+
 private:
     int controlSignal;
+    PID pid_c;
 };
 #endif

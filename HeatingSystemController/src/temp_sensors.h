@@ -32,18 +32,7 @@ DallasTemperature sensors(&oneWire);
 
 // Maximum 10 szenzorra számítunk
 DeviceAddress sensorAddresses[10];
-
-// A szenzor címének kiírása (ROM Address)
-void printAddress(DeviceAddress deviceAddress)
-{
-  for (uint8_t i = 0; i < 8; i++)
-  {
-    if (deviceAddress[i] < 16)
-      Serial.print("0");
-    Serial.print(deviceAddress[i], HEX);
-  }
-  Serial.println();
-}
+std::string sensorAddressStrings[10];
 
 std::string addressToString(DeviceAddress deviceAddress)
 {
@@ -79,7 +68,7 @@ void updateDsSensors()
   sensors.requestTemperatures();
   for (int i = 0; i < sensorCount; i++)
   {
-    Sensor::SensorsValue[addressToString(sensorAddresses[i]).c_str()] = sensors.getTempC(sensorAddresses[i]);
+    Sensor::SensorsValue[sensorAddressStrings[i]] = sensors.getTempC(sensorAddresses[i]);
   }
 #endif
   /* for (HeatingElement element : heatingSystemCollection)
@@ -91,8 +80,9 @@ void updateDsSensors()
 // Szenzorok inicializálása és ellenőrzése
 void setupSensors()
 {
+#ifndef TESTINGOVER_API
   // DallasTemperature inicializálása
-  Serial.println("DS18B20 szenzorok keresése...");
+  logInfo("DS18B20 szenzorok keresése...\n");
   sensors.begin();
 
   // Keressük meg az összes csatlakoztatott DS18B20 szenzort
@@ -102,30 +92,31 @@ void setupSensors()
 
   if (sensorCount == 0)
   {
-    Serial.println("No sensors found on the bus."); // Logoljuk a hibaüzenetet, ha nincs szenzor
+    logError("No sensors found on the bus.\n");
   }
   else
   {
     // Kiírjuk a megtalált szenzorok számát
-    Serial.print("Talált szenzorok száma: ");
-    Serial.println(sensorCount);
+    logInfo("Talált szenzorok száma: %d\n", sensorCount);
 
     // A szenzorok címeit tároljuk
     for (int i = 0; i < sensorCount; i++)
     {
       if (sensors.getAddress(sensorAddresses[i], i))
       {
-        Serial.print("Szenzor ");
-        Serial.print(i);
-        Serial.print(" címe: ");
-        printAddress(sensorAddresses[i]);
+        // Az azonosító létrehozása csak egyszer történik; a loop nem allokál új stringet.
+        sensorAddressStrings[i] = addressToString(sensorAddresses[i]);
+        logDebug("Szenzor %d címe: %s\n",
+                 i,
+                 sensorAddressStrings[i].c_str());
       }
       else
       {
-        Serial.println("Nem sikerült lekérdezni a szenzor címét.");
+        logError("Nem sikerült lekérdezni a szenzor címét.\n");
       }
     }
   }
+#endif
 }
 
 #endif

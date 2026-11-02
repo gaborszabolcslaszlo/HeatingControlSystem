@@ -28,16 +28,25 @@ SensorPosition stringToPosition(const std::string &positionStr);
 class Sensor
 {
 public:
+    struct Location
+    {
+        std::string elementName;
+        SensorPosition position;
+        int level;
+    };
+
     std::string model;
     SensorPosition position; // Change position type to enum
     std::string id;
     float temperature;
     static std::map<std::string, float> SensorsValue;
     float offset;
+    int level;
+    static std::map<std::string, Location> LocationsById;
 
     Sensor();
 
-    Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset);
+    Sensor(const std::string &model, SensorPosition position, const std::string &id, float offset, int level = 0);
 
     void print() const;
 
@@ -48,6 +57,9 @@ public:
 
     // Static method to get temperature from a sensor
     static float getSensorTemperature(const Sensor *sensor);
+
+    static std::string describeId(const std::string &id);
+    static void describeId(const std::string &id, char *buffer, size_t bufferSize);
 
     // Setter for temperature.
     void setTemperature(float temp);

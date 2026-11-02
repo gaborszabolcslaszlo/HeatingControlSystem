@@ -9,7 +9,7 @@
 #include <string>
 #include "common.h"
 #include "../comon.h"
-
+#include <array>
 enum class HeatingElementType
 {
     KAZAN,
@@ -42,11 +42,13 @@ public:
 
     HeatingElement(MessageBus &bus, const std::string name);
 
-    void activatePump();
+    void activatePump(bool dischargePumpsOnly = false);
 
-    void deactivatePump();
+    void deactivatePump(bool skipPid = true);
 
-    void activate();
+    void cleanState();
+
+    void activate(bool dischargepump = false);
 
     void deactivate();
 
@@ -81,7 +83,16 @@ public:
 
     bool getNeedHeating() const;
     void setNeedHeating(bool needHeating_);
-    static std::map<std::string, std::map<std::string, std::string>> ElementsStateMap;
+    using StateValue = std::array<char, 32>;
+    using StateMap = std::map<std::string, std::map<std::string, StateValue>>;
+
+    static StateMap ElementsStateMap;
+    static void setStateValue(const std::string &elementName,
+                              const std::string &stateName,
+                              const char *value);
+    static void setStateValue(const std::string &elementName,
+                              const std::string &stateName,
+                              float value);
 
     HeatingElementType ElemType;
 

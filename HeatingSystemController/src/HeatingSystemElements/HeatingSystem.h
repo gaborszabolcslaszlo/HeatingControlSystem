@@ -15,14 +15,16 @@
 #include <fstream> // Fájlok olvasásához és írásához
 #include <iostream>
 #include "../comon.h"
+#include "Controllers/pid.h"
+#include "HeatingController.h"
 
 class HeatingSystem
 {
 public:
 public:
-    std::vector<HeatingElement *> kazan;
-    std::vector<HeatingElement *> radiators;
-    std::vector<HeatingElement *> puffer;
+    std::vector<Kazan *> kazan;
+    std::vector<Radiator *> radiators;
+    std::vector<Puffer *> puffer;
     std::vector<HeatingElement *> bojler;
     std::vector<HeatingElement *> sunCollector;
     std::vector<HeatingElement *> mergedList;
@@ -36,11 +38,11 @@ public:
 
     void postInitTasks();
 
-    void addKazan(HeatingElement *element);
+    void addKazan(Kazan *element);
 
-    void addRadiator(HeatingElement *element);
+    void addRadiator(Radiator *element);
 
-    void addPuffer(HeatingElement *element);
+    void addPuffer(Puffer *element);
 
     void addBojler(HeatingElement *element);
 
@@ -56,10 +58,14 @@ public:
 
     void controlHeatingSystem(HeatingElement *kazan);
 
+    void HeatingFromPuffer_Handler(HeatingElement *elem, bool NeedHeating = false);
+
     void intiHeatingSystem(const std::string &filename);
 
 private:
     MessageBus messageBus;
+
+    HeatingController controller;
 
     void cleanAllDeviceState();
 

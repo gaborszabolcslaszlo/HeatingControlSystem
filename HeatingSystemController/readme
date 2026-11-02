@@ -1,3 +1,67 @@
 
 
 
+
+# HeatingSystemController
+
+## Pytest tesztkörnyezet
+
+A Python tesztek futtatásához a projekt gyökérkönyvtárában dolgozz:
+
+```bash
+cd /home/laca/Documents/AlfaOmega/Projektek/HeatingControlSystem/HeatingSystemController
+```
+
+### Virtuális környezet létrehozása
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### Tesztfüggőségek telepítése
+
+```bash
+python -m pip install -r requirements-test.txt
+```
+
+Ha a rendszer Pythonja védett vagy a csomagok már rendszer szinten telepítve vannak, használható ez a változat:
+
+```bash
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+```
+
+### Tesztek ellenőrzése futtatás nélkül
+
+```bash
+python -m pytest --collect-only -q
+```
+
+### API integrációs tesztek indítása
+
+A tesztek alapértelmezett célja az ESP eszköz:
+
+```text
+http://192.168.0.106
+```
+
+Futtatás:
+
+```bash
+python -m pytest -m integration -v
+```
+
+A tesztek a `setTemp` API-n keresztül hőmérsékletértékeket írnak az eszközre, ezért az eszköznek elérhetőnek kell lennie a hálózaton.
+
+Másik API-cím használata:
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 python -m pytest -m integration -v
+```
+
+A virtuális környezet elhagyása:
+
+```bash
+deactivate
+```

@@ -1,8 +1,32 @@
 #include "HeatingElement.h"
 
 #include "../comon.h"
+#include <cstdio>
+#include <cstring>
 
-std::map<std::string, std::map<std::string, std::string>> HeatingElement::ElementsStateMap;
+HeatingElement::StateMap HeatingElement::ElementsStateMap;
+
+void HeatingElement::setStateValue(const std::string &elementName,
+                                   const std::string &stateName,
+                                   const char *value)
+{
+    StateValue &storedValue = ElementsStateMap[elementName][stateName];
+    if (value == nullptr)
+    {
+        storedValue[0] = '\0';
+        return;
+    }
+
+    std::snprintf(storedValue.data(), storedValue.size(), "%s", value);
+}
+
+void HeatingElement::setStateValue(const std::string &elementName,
+                                   const std::string &stateName,
+                                   float value)
+{
+    StateValue &storedValue = ElementsStateMap[elementName][stateName];
+    std::snprintf(storedValue.data(), storedValue.size(), "%.6f", value);
+}
 
 std::string elementTypeToString(HeatingElementType type)
 {
@@ -55,26 +79,30 @@ HeatingElement::HeatingElement(MessageBus &bus, const std::string name) : messag
                          { this->onMessageReceived(msg); });
 }
 
-void HeatingElement::activatePump()
+void HeatingElement::activatePump(bool dischargePumpsOnly)
 {
     for (Pump &pump : pumps)
     {
-        pump.setControlSignal(100); // Hívjuk meg a függvényt minden szenzorra
+        if (dischargePumpsOnly == pump.dischargepump)
+        {
+            pump.enable();
+        }
     }
 }
 
-void HeatingElement::deactivatePump()
+void HeatingElement::deactivatePump(bool skipPid)
 {
     for (Pump &pump : pumps)
     {
-        pump.setControlSignal(0); // Hívjuk meg a függvényt minden szenzorra
+        // pump.setControlSignal(0); // Hívjuk meg a függvényt minden szenzorra
+        pump.disable(skipPid);
     }
 }
 
-void HeatingElement::activate()
+void HeatingElement::activate(bool dischargepump)
 {
     // Serial.printf("Element active, name: %s \n", name);
-    activatePump();
+    activatePump(dischargepump);
     isActive = true; // Aktiválás
 }
 
@@ -82,6 +110,12 @@ void HeatingElement::deactivate()
 {
     // Serial.printf("Element deactive, name: %s \n", name);
     deactivatePump();
+    isActive = false; // Deaktiválás
+}
+
+void HeatingElement::cleanState()
+{
+    deactivatePump(true);
     isActive = false; // Deaktiválás
 }
 
@@ -133,7 +167,7 @@ float HeatingElement::getBodyTemperature()
 void HeatingElement::classifySensors()
 {
     // Serial.println("----- classify sensors modul:" + name + "-----");
-    logMessage("----- classify sensors modul: %s ----- \n", name.c_str());
+    logDebug("----- classify sensors modul: %s ----- \n", name.c_str());
     for (const auto &sensor : sensors)
     {
         if (sensor.position == SensorPosition::TOUR)
@@ -155,17 +189,29 @@ void HeatingElement::classifySensors()
 float HeatingElement::calculateAverageTemperature(const std::vector<Sensor *> &sensors)
 {
     float sum = 0.0f;
+    float weightedSum = 0.0f;
+    int totalWeight = 0;
     size_t count = 0;
 
     for (const Sensor *sensor : sensors)
     {
         if (sensor)
         {                                                // Check if the sensor is not null
-            sum += Sensor::getSensorTemperature(sensor); // Use static method to get temperature
+            float temperature = Sensor::getSensorTemperature(sensor);
+            sum += temperature;
+            if (sensor->level > 0)
+            {
+                weightedSum += temperature * sensor->level;
+                totalWeight += sensor->level;
+            }
             ++count;                                     // Increment the count of valid sensors
         }
     }
 
+    if (totalWeight > 0)
+    {
+        return weightedSum / totalWeight;
+    }
     return (count > 0) ? (sum / count) : 0.0f; // Return average temperature or 0.0f if no valid sensors
 }
 
@@ -177,15 +223,15 @@ void HeatingElement::printSensors(const std::vector<Sensor *> &sensors, const st
     {
         s = " sensors are redundant";
     }
-    logMessage("        Sensors in %s group %s\n", group.c_str(), s.c_str());
+    logDebug("        Sensors in %s group %s\n", group.c_str(), s.c_str());
     for (const auto &sensor : sensors)
     {
-        logMessage("            Model: %s\n", sensor->model.c_str());
+        logDebug("            Model: %s\n", sensor->model.c_str());
 
-        logMessage("            ID%s\n", sensor->id.c_str());
+        logDebug("            ID%s\n", sensor->id.c_str());
 
         // Serial.println();
-        logMessage("            Position: %s\n", positionToString(sensor->position).c_str());
+        logDebug("            Position: %s\n", positionToString(sensor->position).c_str());
     }
 }
 
@@ -194,7 +240,7 @@ bool HeatingElement::validate()
     // Name must be present
     if (name.empty())
     {
-        logMessage("Error: Heating element name is missing.\n");
+        logError("Error: Heating element name is missing.\n");
         return false;
     }
 
@@ -203,7 +249,7 @@ bool HeatingElement::validate()
     {
         if (!sensor.validate())
         {
-            logMessage("Error: Invalid sensor in %s\n", name);
+            logError("Error: Invalid sensor in %s\n", name.c_str());
             return false;
         }
     }
@@ -213,7 +259,7 @@ bool HeatingElement::validate()
     {
         if (!pump.validate())
         {
-            logMessage("Error: Invalid pump in %s\n", name);
+            logError("Error: Invalid pump in %s\n", name.c_str());
             return false;
         }
     }
@@ -223,7 +269,7 @@ bool HeatingElement::validate()
     {
         if (!valve.validate())
         {
-            logMessage("Error: Invalid valve in %s\n", name);
+            logError("Error: Invalid valve in %s\n", name.c_str());
             return false;
         }
     }
@@ -233,9 +279,9 @@ bool HeatingElement::validate()
 
 void HeatingElement::printHeatingElement()
 {
-    logMessage("-----Heating Element: %s\n", name.c_str());
+    logDebug("-----Heating Element: %s\n", name.c_str());
 
-    logMessage("-----Sensors:\n");
+    logDebug("-----Sensors:\n");
     for (auto &sensor : sensors)
     {
         sensor.print();
@@ -245,13 +291,13 @@ void HeatingElement::printHeatingElement()
     printSensors(retourSensors, positionToString(SensorPosition::RETOUR));
     printSensors(bodySensors, positionToString(SensorPosition::BODY));
 
-    logMessage("------Pumps:\n");
+    logDebug("------Pumps:\n");
     for (auto &pump : pumps)
     {
         pump.print();
     }
 
-    logMessage("------Valves:\n");
+    logDebug("------Valves:\n");
     for (auto &valve : valves)
     {
         valve.print();
@@ -273,9 +319,9 @@ void HeatingElement::update()
     // Perform the calculation.
     heatTransfer.calculateHeatingTransferDirection(tourSensors, retourSensors, 1.0);
 
-    ElementsStateMap[name]["HT"] = std::to_string(this->heatTransfer.transferValue);
-    ElementsStateMap[name]["NH"] = this->needHeating ? "true" : "false";
-    ElementsStateMap[name]["iA"] = this->getIsActive() ? "true" : "false";
+    setStateValue(name, "HT", this->heatTransfer.transferValue);
+    setStateValue(name, "NH", this->needHeating ? "true" : "false");
+    setStateValue(name, "iA", this->getIsActive() ? "true" : "false");
 }
 
 bool HeatingElement::canSupplyHeat(HeatingElement *element)
@@ -288,11 +334,11 @@ bool HeatingElement::canSupplyHeat(HeatingElement *element)
     // Ha a különbség az előremenő és visszatérő hőmérséklet között elég nagy, akkor még tud hőt biztosítani
     if ((forwardTemp - returnTemp) > minTempDifference)
     {
-        logMessage("Source %s can trnasfer heat to %s\n", name.c_str(), element->name.c_str());
+        // logInfo("Source %s can trnasfer heat to %s\n", name.c_str(), element->name.c_str());
         return true; // Kazán tud még hőt biztosítani
     }
 
-    logMessage("Source %s can't trnasfer heat to %s\n", name.c_str(), element->name.c_str());
+    // logInfo("Source %s can't trnasfer heat to %s\n", name.c_str(), element->name.c_str());
     return false; // A hőmérsékletkülönbség túl kicsi, a fűtési elem már nem tud több hőt felvenni
 }
 

@@ -1,22 +1,30 @@
 
 #include "HeatingSystem.h"
 
+namespace
+{
+const std::string kHeatingControllerStateKey{"HeatingController"};
+}
+
 HeatingSystem::HeatingSystem(const std::string &filename)
 {
     this->intiHeatingSystem(filename);
+    // A vezérlő saját állapota akkor is jelenjen meg a /state válaszban,
+    // ha az első időzített update() még nem futott le.
+    HeatingElement::setStateValue(kHeatingControllerStateKey, "state", controller.getModeName());
 }
 
 void HeatingSystem::postInitTasks()
 {
 }
 
-void HeatingSystem::addKazan(HeatingElement *element)
+void HeatingSystem::addKazan(Kazan *element)
 {
     kazan.push_back(element);
     mergedList.push_back(element);
 }
 
-void HeatingSystem::addRadiator(HeatingElement *element)
+void HeatingSystem::addRadiator(Radiator *element)
 {
     radiators.push_back(element);
     mergedList.push_back(element);
@@ -24,7 +32,7 @@ void HeatingSystem::addRadiator(HeatingElement *element)
     pasivElemList.push_back(element);
 }
 
-void HeatingSystem::addPuffer(HeatingElement *element)
+void HeatingSystem::addPuffer(Puffer *element)
 {
     puffer.push_back(element);
     mergedList.push_back(element);
@@ -44,42 +52,12 @@ void HeatingSystem::addSunCollector(HeatingElement *element)
     mergedList.push_back(element);
 }
 
-void HeatingSystem::addHeatingElement(HeatingElement *element, std::string typeString)
-{
-    HeatingElementType type = elementTypeFromString(typeString);
-    if (type == HeatingElementType::UNKNOWN)
-    {
-        logMessage("Unknown Heating System Element type: %s \n", typeString.c_str());
-    }
-    switch (type)
-    {
-    case HeatingElementType::KAZAN:
-        addKazan(element);
-        break;
-    case HeatingElementType::RADIATOR:
-        addRadiator(element);
-        break;
-    case HeatingElementType::PUFER:
-        addPuffer(element);
-        break;
-    case HeatingElementType::SUNCOLLECTOR:
-        addSunCollector(element);
-        break;
-    case HeatingElementType::BOJLER:
-        addBojler(element);
-        break;
-
-    default:
-        break;
-    }
-}
-
 bool HeatingSystem::validate()
 {
     // Validate Kazan elements
     if (kazan.empty())
     {
-        logMessage("Error: Kazan element is missing in the configuration.\n");
+        logError("Error: Kazan element is missing in the configuration.\n");
         return false;
     }
 
@@ -94,21 +72,21 @@ bool HeatingSystem::validate()
 
 void HeatingSystem::printHeatingSystem()
 {
-    logMessage("-----Heating System:-----\n");
+    logDebug("-----Heating System:-----\n");
 
-    logMessage("-----Kazan Elements:------\n");
+    logDebug("-----Kazan Elements:------\n");
     for (auto &element : kazan)
     {
         element->printHeatingElement();
     }
 
-    logMessage("-----Radiator Elements:----\n");
+    logDebug("-----Radiator Elements:----\n");
     for (auto &element : radiators)
     {
         element->printHeatingElement();
     }
 
-    logMessage("-----Puffer Elements:-------\n");
+    logDebug("-----Puffer Elements:-------\n");
     for (auto &element : puffer)
     {
         element->printHeatingElement();
@@ -118,41 +96,53 @@ void HeatingSystem::printHeatingSystem()
 void HeatingSystem::update()
 {
 
-    for (HeatingElement *element : mergedList)
-    {
-        element->update();
-    }
+    controller.run();
+    HeatingElement::setStateValue(kHeatingControllerStateKey, "state", controller.getModeName());
 
-    for (HeatingElement *element : kazan)
-    {
-        Kazan *kazanPtr = static_cast<Kazan *>(element);
-        kazanPtr->update();
-    }
+    /* for (HeatingElement *element : mergedList)
+     {
+         element->update();
+     }
 
-    controlHeatingSystem(kazan[0]);
+     for (HeatingElement *element : kazan)
+     {
+         Kazan *kazanPtr = static_cast<Kazan *>(element);
+         kazanPtr->update();
+     }
 
-    for (HeatingElement *element : mergedList)
-    {
-        element->update();
-    }
+     for (HeatingElement *element : puffer)
+     {
+         Puffer *kazanPtr = static_cast<Puffer *>(element);
+         kazanPtr->update();
+     }
 
-    for (HeatingElement *element : kazan)
-    {
-        Kazan *kazanPtr = static_cast<Kazan *>(element);
-        kazanPtr->update();
-    }
+     controlHeatingSystem(kazan[0]);
+
+     for (HeatingElement *element : mergedList)
+     {
+         element->update();
+     }
+
+     for (HeatingElement *element : kazan)
+     {
+         Kazan *kazanPtr = static_cast<Kazan *>(element);
+         kazanPtr->update();
+     }*/
 }
 
 void HeatingSystem::cleanAllDeviceState()
 {
     for (HeatingElement *elemDeact : heatingPriorityList)
     {
-        elemDeact->deactivate();
+        // elemDeact->deactivate();
+        elemDeact->cleanState();
     }
 
     for (HeatingElement *actPuffer : puffer)
     {
         actPuffer->setNeedHeating(false);
+        // actPuffer->deactivate();
+        actPuffer->cleanState();
     }
 }
 
@@ -184,6 +174,7 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                 if (kazan->canSupplyHeat(elem))
                 {
                     elem->setNeedHeating(true);
+                    elem->activate();
                 }
             }
         }
@@ -193,10 +184,11 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             for (HeatingElement *elem : puffer)
             {
                 Puffer *pufferElem = static_cast<Puffer *>(elem);
-                elem->setNeedHeating(false);
-                if (kazan->canSupplyHeat(elem) && pufferElem->LinkedHeatSource_ActivationTourTemp > kazan->getTourTemperature())
+                // elem->setNeedHeating(false);
+                if (kazan->canSupplyHeat(elem) && pufferElem->LinkedHeatSource_ActivationTourTemp < kazan->getTourTemperature())
                 {
                     elem->setNeedHeating(true);
+                    elem->activate(false);
                 }
             }
         }
@@ -232,7 +224,8 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
             {
                 if (kazanPtr->getIsRetourProtectionActive())
                 { //?????? ha tobb kazan van akko nam lesz ok
-                    elem->deactivatePump();
+                    // elem->deactivatePump();
+                    HeatingFromPuffer_Handler(elem, false);
                 }
                 else
                 {
@@ -248,39 +241,24 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
                     }
                 }
             }
-            else
-            {
-                // puferbol valo futes
-                for (HeatingElement *actPuffer : puffer)
-                {
 
-                    Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
-                    // skip self check Puffer
-                    if (elem->ElemType != HeatingElementType::PUFER && elem->ElemType != HeatingElementType::SUNCOLLECTOR)
-                    {
-                        logMessage("%s", actPuffer->name.c_str());
-                        if (pufferPtr->hasStoredEnergy() && elem->getNeedHeating() && pufferPtr->canSupplyHeat(elem))
-                        {
-                            logMessage("Pufferbol futes activ: %s -> %s\n", pufferPtr->name.c_str(), elem->name.c_str());
-                            elem->activate();
-                            actPuffer->activate();
-                        }
-                    }
-                }
-                // logMessage("%s\n", elem->name.c_str());
+            if (!kazanPtr->getIsKazanActive())
+            {
+                HeatingFromPuffer_Handler(elem, false);
+                // logInfo("%s\n", elem->name.c_str());
             }
 
             for (HeatingElement *sunColElemPtr : sunCollector)
             {
                 SunCollector *sunColPtr = static_cast<SunCollector *>(sunColElemPtr);
                 // skip self check Puffer
-                logMessage("%s", sunColPtr->name.c_str());
+                logInfo("%s", sunColPtr->name.c_str());
                 bool isOneElement = false;
 
                 // ha egy elem keri a hot es van a napellemben
                 if (sunColPtr->hasStoredEnergy() && elem->getNeedHeating() && sunColPtr->canSupplyHeat(elem))
                 {
-                    logMessage("Napelembol activ: %s -> %s\n", sunColPtr->name.c_str(), elem->name.c_str());
+                    logInfo("Napelembol activ: %s -> %s\n", sunColPtr->name.c_str(), elem->name.c_str());
                     elem->activate();
                     sunColPtr->activate();
                     isOneElement = true;
@@ -305,16 +283,44 @@ void HeatingSystem::controlHeatingSystem(HeatingElement *kazan)
     }
 }
 
+void HeatingSystem::HeatingFromPuffer_Handler(HeatingElement *elem, bool NeedHeating)
+{
+    // puferbol valo futes
+    for (HeatingElement *actPuffer : puffer)
+    {
+        // logInfo("Pufferbol futes activ ??");
+        Puffer *pufferPtr = static_cast<Puffer *>(actPuffer);
+        // skip self check Puffer
+        if (elem->ElemType != HeatingElementType::PUFER && elem->ElemType != HeatingElementType::SUNCOLLECTOR)
+        {
+            // logInfo("%s", actPuffer->name.c_str());
+            if (pufferPtr->hasStoredEnergy() && elem->getNeedHeating() && pufferPtr->canSupplyHeat(elem))
+            {
+                // logInfo("Pufferbol futes activ: %s -> %s\n", pufferPtr->name.c_str(), elem->name.c_str());
+                elem->activate();
+                if (NeedHeating)
+                {
+                    actPuffer->activate(false);
+                }
+                else
+                {
+                    actPuffer->activate(true);
+                }
+            }
+        }
+    }
+}
+
 void HeatingSystem::intiHeatingSystem(const std::string &filename)
 {
-    logMessage("----- int Heating System -----\n");
-    StaticJsonDocument<3048> doc; // Adjust size as necessary
+    logDebug("----- int Heating System -----\n");
+    DynamicJsonDocument doc(8192);
 
 #ifndef UNIT_TESTING
     File configFile = SPIFFS.open(filename.c_str(), "r");
     if (!configFile)
     {
-        logMessage("Failed to open configuration file.\n");
+        logError("Failed to open configuration file.\n");
         return;
     }
     DeserializationError error = deserializeJson(doc, configFile);
@@ -325,7 +331,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
     // Ellenőrizni, hogy sikerült-e megnyitni a fájlt
     if (!configFile.is_open())
     {
-        logMessage("Failed to open configuration file on linux\n");
+        logError("Failed to open configuration file on linux\n");
         return;
     }
 
@@ -335,8 +341,8 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
 
     if (error)
     {
-        logMessage("Failed to read configuration. \n");
-        logMessage("%s", error.c_str());
+        logError("Failed to read configuration. \n");
+        logInfo("%s", error.c_str());
         return;
     }
 
@@ -354,7 +360,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
 
             if (name.empty())
             {
-                logMessage("Error: Name is mandatory for each element.\n");
+                logError("Error: Name is mandatory for each element.\n");
                 continue; // Skip this element if name is missing
             }
 
@@ -363,7 +369,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
             HeatingElementType type = elementTypeFromString(key);
             if (type == HeatingElementType::UNKNOWN)
             {
-                logMessage("Unknown Heating System Element type: %s \n", key);
+                logError("Unknown Heating System Element type: %s \n", key);
             }
 
             switch (type)
@@ -373,7 +379,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 float retourTempProtValue = element["retourTempProtValue"];
                 float tourTempProtValue = element["tourTempProtValue"];
                 float activationThreshold = element["activationThreshold"];
-                heatingElement = new Kazan(messageBus, name, retourTempProtValue, tourTempProtValue, activationThreshold);
+                heatingElement = new Kazan(messageBus, name, retourTempProtValue, tourTempProtValue, activationThreshold, Kazan::FuelType::WOOD);
                 break;
             }
             case HeatingElementType::RADIATOR:
@@ -422,15 +428,17 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 {
                     offset = 0.0;
                 }
-                Sensor newSensor(model, position, id, offset);
+                int level = sensor["level"] | 0;
+                Sensor newSensor(model, position, id, offset, level);
                 if (newSensor.validate())
                 {
+                    Sensor::LocationsById[id] = {name, position, level};
                     heatingElement->addSensor(newSensor);
                 }
                 else
                 {
                     isSensorsValid = false;
-                    logMessage("Error: Invalid sensor configuration.\n");
+                    logError("Error: Invalid sensor configuration.\n");
                 }
             }
             if (isSensorsValid)
@@ -445,7 +453,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 std::string pumpName = pump["name"];
                 if (pumpName.empty())
                 {
-                    logMessage("Error: Name is mandatory for each pump.\n");
+                    logError("Error: Name is mandatory for each pump.\n");
                     continue; // Skip this pump if name is missing
                 }
 
@@ -453,14 +461,40 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 int maxControlSig = pump["maxControlSig"];
                 int minControlSig = pump["minControlSig"];
                 std::string workingMode = pump["workingMode"];
+                bool dischargepump = false;
+                if (pump.containsKey("dischargepump"))
+                {
+                    dischargepump = pump["dischargepump"];
+                }
                 int IOnumber = pump["IOnumber"];
                 int SaftyIOnumberForAnalog = -1;
                 if (pump.containsKey("SaftyIOnumberForAnalog"))
                 {
-                    int SaftyIOnumberForAnalog = pump["SaftyIOnumberForAnalog"];
+                    SaftyIOnumberForAnalog = pump["SaftyIOnumberForAnalog"];
                 }
 
-                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode, SaftyIOnumberForAnalog);
+                PID pid_c = PID(0.0f, 0.0f, 0.0f);
+                if (pump.containsKey("pid"))
+                {
+                    JsonObject pid = pump["pid"];
+                    float p = pid["p"] | 0.0f;
+                    float i = pid["i"] | 0.0f;
+                    float d = pid["d"] | 0.0f;
+                    std::string tempSensorId = pid["tempSensorId"];
+                    if (tempSensorId.empty())
+                    {
+                        logError("Error: tempSensorId is mandatory for PID controller.\n");
+                        continue; // Skip this pump if name is missing
+                    }
+                    pid_c = PID(p, i, d);
+                    pid_c.enabled = pid["enabled"] | true;
+                    pid_c.tempSensorId = tempSensorId;
+                    pid_c.outMin = 5;
+                    pid_c.outMax = 99.9;
+                    pid_c.setPointConfig = pid["setPoint"];
+                    pid_c.allparamok = true;
+                }
+                Pump newPump(IOnumber, pumpName, model, maxControlSig, minControlSig, workingMode, SaftyIOnumberForAnalog, dischargepump, pid_c);
                 heatingElement->addPump(newPump);
             }
 
@@ -471,7 +505,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 std::string valveName = valve["name"];
                 if (valveName.empty())
                 {
-                    logMessage("Error: Name is mandatory for each valve.\n");
+                    logError("Error: Name is mandatory for each valve.\n");
                     continue; // Skip this valve if name is missing
                 }
 
@@ -488,13 +522,16 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
             switch (type)
             {
             case HeatingElementType::KAZAN:
-                this->addKazan(heatingElement);
+                this->addKazan((Kazan *)heatingElement);
+                this->controller.addBoiler(*static_cast<Kazan *>(heatingElement));
                 break;
             case HeatingElementType::RADIATOR:
-                this->addRadiator(heatingElement);
+                this->addRadiator((Radiator *)heatingElement);
+                this->controller.addConsumer(*static_cast<Radiator *>(heatingElement));
                 break;
             case HeatingElementType::PUFER:
-                this->addPuffer(heatingElement);
+                this->addPuffer((Puffer *)heatingElement);
+                this->controller.addBuffer(*static_cast<Puffer *>(heatingElement));
                 break;
 
             default:

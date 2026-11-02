@@ -16,7 +16,7 @@ bool Valve::validate()
 {
     if (name.empty())
     {
-        logMessage("Error: Valve name is missing.");
+        logError("Error: Valve name is missing.");
         return false;
     }
     return true;
@@ -24,9 +24,9 @@ bool Valve::validate()
 
 void Valve::print()
 {
-    logMessage("        Valve:\n");
-    logMessage("            Name: %s\n", name.c_str());
-    logMessage("            Max Control Signal: %s\n", std::to_string(maxControlSig).c_str());
-    logMessage("            Min Control Signal: %s\n", std::to_string(minControlSig).c_str());
-    logMessage("            Working Mode: %s\n", workingMode.c_str());
+    logDebug("        Valve:\n");
+    logDebug("            Name: %s\n", name.c_str());
+    logDebug("            Max Control Signal: %d\n", maxControlSig);
+    logDebug("            Min Control Signal: %d\n", minControlSig);
+    logDebug("            Working Mode: %s\n", workingMode.c_str());
 }

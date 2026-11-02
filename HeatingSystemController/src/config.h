@@ -6,6 +6,8 @@
 #include <FS.h>
 #include <ArduinoJson.h>
 #include <ESP8266WebServer.h>
+#include <map>
+#include <string>
 #include "comon.h"
 
 // Globális webszerver változó
@@ -26,8 +28,10 @@ struct Configuration
 
 // Globális konfigurációs változó
 Configuration config;
+int configurationUploadResult = 0;
+String configurationUploadError;
 
-StaticJsonDocument<1024> configContent;
+DynamicJsonDocument configContent(8192);
 
 // Konfiguráció betöltése a fájlból
 void loadConfig()
@@ -35,14 +39,14 @@ void loadConfig()
   // Az SPIFFS inicializálása
   if (!SPIFFS.begin())
   {
-    logMessage("Hiba a SPIFFS indításakor.\n");
+    logError("Hiba a SPIFFS indításakor.\n");
     return;
   }
 
   // Ellenőrizzük, hogy létezik-e a konfigurációs fájl
   if (!SPIFFS.exists("/config.json"))
   {
-    logMessage("Nincs konfigurációs fájl.\n");
+    logError("Nincs konfigurációs fájl.\n");
     return;
   }
 
@@ -50,21 +54,20 @@ void loadConfig()
   File configFile = SPIFFS.open("/config.json", "r");
   if (!configFile)
   {
-    logMessage("Nem sikerült megnyitni a konfigurációs fájlt.\n");
+    logError("Nem sikerült megnyitni a konfigurációs fájlt.\n");
     return;
   }
 
-  // Fájl tartalmának beolvasása
   size_t size = configFile.size();
-  std::unique_ptr<char[]> buf(new char[size]);
-  configFile.readBytes(buf.get(), size);
+  std::unique_ptr<char[]> buf(new char[size + 1]);
+  size_t bytesRead = configFile.readBytes(buf.get(), size);
+  buf[bytesRead] = '\0';
 
-  // JSON feldolgozása
-  DeserializationError error = deserializeJson(configContent, buf.get());
+  DeserializationError error = deserializeJson(configContent, buf.get(), bytesRead);
 
   if (error)
   {
-    logMessage("Hiba a konfiguráció beolvasásakor.\n");
+    logError("Hiba a konfiguráció beolvasásakor.\n");
     return;
   }
 
@@ -78,16 +81,28 @@ void loadConfig()
   config.wifiMode = configContent["WifiMode"].as<String>();
   config.hostname = configContent["hostname"].as<String>();
   config.communicationTypeWebApp = configContent["comType"].as<String>();
-  logMessage("Config betöltve:\n");
-  logMessage("  WiFi SSID: %s\n", config.wifiSSID);
-  logMessage("  WiFi Password: %s\n", config.wifiPassword);
-  logMessage("  WiFi hostname: %s\n", config.hostname);
+  logInfo("Config betöltve:\n");
+  logInfo("  WiFi SSID: %s\n", config.wifiSSID.c_str());
+  logInfo("  WiFi hostname: %s\n", config.hostname.c_str());
 }
 
 // Konfiguráció mentése fájlba
 void saveConfig()
 {
-  StaticJsonDocument<512> jsonBuffer;
+  DynamicJsonDocument jsonBuffer(8192);
+
+  File existingConfig = SPIFFS.open("/config.json", "r");
+  if (existingConfig)
+  {
+    DeserializationError error = deserializeJson(jsonBuffer, existingConfig);
+    existingConfig.close();
+    if (error)
+    {
+      logError("Nem sikerült a meglévő konfiguráció beolvasása mentés előtt.\n");
+      return;
+    }
+  }
+
   jsonBuffer["wifiSSID"] = config.wifiSSID;
   jsonBuffer["wifiPassword"] = config.wifiPassword;
 
@@ -95,14 +110,218 @@ void saveConfig()
   File configFile = SPIFFS.open("/config.json", "w");
   if (!configFile)
   {
-    logMessage("Nem sikerült megnyitni a konfigurációs fájlt írásra.");
+    logError("Nem sikerült megnyitni a konfigurációs fájlt írásra.");
     return;
   }
 
   // JSON mentése a fájlba
   serializeJson(jsonBuffer, configFile);
   configFile.close();
-  logMessage("Konfiguráció elmentve.");
+  logInfo("Konfiguráció elmentve.");
+}
+
+bool validateConfigurationJson(const String &jsonData, String &errorMessage)
+{
+  DynamicJsonDocument doc(8192);
+  auto isNumber = [](JsonVariant value)
+  {
+    return value.is<int>() || value.is<float>() || value.is<double>();
+  };
+  DeserializationError error = deserializeJson(doc, jsonData);
+  if (error)
+  {
+    errorMessage = "Érvénytelen JSON: " + String(error.c_str());
+    return false;
+  }
+
+  JsonObject root = doc.as<JsonObject>();
+  if (root.isNull())
+  {
+    errorMessage = "A konfiguráció gyökéreleme nem JSON objektum.";
+    return false;
+  }
+
+  const char *requiredRootKeys[] = {
+      "wifiSSID", "wifiPassword", "AP_SSID", "AP_Password",
+      "WifiMode", "hostname", "comType", "HeatingSystem"};
+  for (const char *key : requiredRootKeys)
+  {
+    if (!root.containsKey(key))
+    {
+      errorMessage = String("Hiányzó fő konfigurációs mező: ") + key;
+      return false;
+    }
+  }
+
+  String wifiMode = root["WifiMode"].as<String>();
+  if (wifiMode != "STA" && wifiMode != "AP" && wifiMode != "STA+AP")
+  {
+    errorMessage = "A WifiMode csak STA, AP vagy STA+AP lehet.";
+    return false;
+  }
+
+  String communicationType = root["comType"].as<String>();
+  if (communicationType != "API" && communicationType != "WS")
+  {
+    errorMessage = "A comType csak API vagy WS lehet.";
+    return false;
+  }
+
+  JsonObject heatingSystem = root["HeatingSystem"].as<JsonObject>();
+  if (heatingSystem.isNull())
+  {
+    errorMessage = "A HeatingSystem mezőnek JSON objektumnak kell lennie.";
+    return false;
+  }
+  if (!heatingSystem.containsKey("KAZAN"))
+  {
+    errorMessage = "A HeatingSystem.KAZAN kötelező mező.";
+    return false;
+  }
+
+  std::map<std::string, bool> sensorIds;
+  bool hasBoiler = false;
+  const char *elementTypes[] = {"KAZAN", "RADIATOR", "PUFER"};
+  for (const char *elementType : elementTypes)
+  {
+    if (!heatingSystem.containsKey(elementType))
+    {
+      continue;
+    }
+
+    JsonArray elements = heatingSystem[elementType].as<JsonArray>();
+    if (elements.isNull())
+    {
+      errorMessage = String("A HeatingSystem.") + elementType + " mezőnek tömbnek kell lennie.";
+      return false;
+    }
+    if (String(elementType) == "KAZAN" && elements.size() == 0)
+    {
+      errorMessage = "Legalább egy kazán konfigurációja szükséges.";
+      return false;
+    }
+
+    for (JsonObject element : elements)
+    {
+      String elementName = element["name"].as<String>();
+      if (elementName.length() == 0)
+      {
+        errorMessage = String("Hiányzó elemnév a ") + elementType + " listában.";
+        return false;
+      }
+      if (String(elementType) == "KAZAN")
+      {
+        hasBoiler = true;
+        const char *boilerFields[] = {
+            "retourTempProtValue", "tourTempProtValue", "activationThreshold"};
+        for (const char *field : boilerFields)
+        {
+          if (!element.containsKey(field) || !isNumber(element[field]))
+          {
+            errorMessage = String("Hiányzó kazánbeállítás: ") + field;
+            return false;
+          }
+        }
+      }
+
+      if (!element.containsKey("sensors") || !element["sensors"].is<JsonArray>())
+      {
+        errorMessage = String("Hiányzó vagy hibás sensors tömb: ") + elementName;
+        return false;
+      }
+      for (JsonObject sensor : element["sensors"].as<JsonArray>())
+      {
+        String sensorId = sensor["id"].as<String>();
+        String position = sensor["position"].as<String>();
+        if (sensor["model"].as<String>().length() == 0 || sensorId.length() == 0)
+        {
+          errorMessage = String("Hiányos szenzorkonfiguráció: ") + elementName;
+          return false;
+        }
+        if (position != "body" && position != "tour" && position != "retour")
+        {
+          errorMessage = String("Érvénytelen szenzorpozíció: ") + position;
+          return false;
+        }
+        std::string sensorIdValue = sensorId.c_str();
+        if (sensorIds.count(sensorIdValue) != 0)
+        {
+          errorMessage = String("Duplikált szenzorazonosító: ") + sensorId;
+          return false;
+        }
+        sensorIds[sensorIdValue] = true;
+
+        if (sensor.containsKey("level"))
+        {
+          int level = sensor["level"] | -1;
+          if (level < 0 || level > 100)
+          {
+            errorMessage = String("A szenzorszintnek 0 és 100 között kell lennie: ") + sensorId;
+            return false;
+          }
+        }
+      }
+
+      if (!element.containsKey("pumps") || !element["pumps"].is<JsonArray>())
+      {
+        errorMessage = String("Hiányzó vagy hibás pumps tömb: ") + elementName;
+        return false;
+      }
+      for (JsonObject pump : element["pumps"].as<JsonArray>())
+      {
+        String pumpName = pump["name"].as<String>();
+        String workingMode = pump["workingMode"].as<String>();
+        if (pumpName.length() == 0 || pump["model"].as<String>().length() == 0)
+        {
+          errorMessage = String("Hiányos szivattyúkonfiguráció: ") + elementName;
+          return false;
+        }
+        if (workingMode != "ON/OFF" && workingMode != "PWM")
+        {
+          errorMessage = String("Érvénytelen szivattyú üzemmód: ") + workingMode;
+          return false;
+        }
+        int minSignal = pump["minControlSig"] | -1;
+        int maxSignal = pump["maxControlSig"] | -1;
+        int ioNumber = pump["IOnumber"] | -1;
+        if (!pump.containsKey("IOnumber") || ioNumber < 0 || ioNumber > 15 ||
+            minSignal < 0 || maxSignal > 100 || minSignal > maxSignal)
+        {
+          errorMessage = String("Hibás szivattyú vezérlési tartomány: ") + pumpName;
+          return false;
+        }
+
+        if (pump.containsKey("pid"))
+        {
+          JsonObject pid = pump["pid"].as<JsonObject>();
+          String tempSensorId = pid["tempSensorId"].as<String>();
+          if (pid.isNull() || tempSensorId.length() == 0 ||
+              !pid.containsKey("setPoint") || !isNumber(pid["setPoint"]) ||
+              !pid.containsKey("enabled") || !pid["enabled"].is<bool>() ||
+              !pid.containsKey("p") || !isNumber(pid["p"]) ||
+              !pid.containsKey("i") || !isNumber(pid["i"]) ||
+              !pid.containsKey("d") || !isNumber(pid["d"]))
+          {
+            errorMessage = String("Hiányos PID-konfiguráció: ") + pumpName;
+            return false;
+          }
+          if (sensorIds.count(std::string(tempSensorId.c_str())) == 0)
+          {
+            errorMessage = String("A PID ismeretlen szenzorra hivatkozik: ") + tempSensorId;
+            return false;
+          }
+        }
+      }
+    }
+  }
+
+  if (!hasBoiler)
+  {
+    errorMessage = "Nem található érvényes kazánkonfiguráció.";
+    return false;
+  }
+
+  return true;
 }
 
 void handleFileUploadByPlanText()
@@ -113,12 +332,12 @@ void handleFileUploadByPlanText()
     String jsonData = server.arg("plain");
 
     // JSON parsolás
-    StaticJsonDocument<512> doc;
+    DynamicJsonDocument doc(8192);
     DeserializationError error = deserializeJson(doc, jsonData);
 
     if (error)
     {
-      logMessage("Failed to parse JSON");
+      logError("Failed to parse JSON");
       server.send(400, "application/json", "{\"status\":\"error\", \"message\":\"Invalid JSON format\"}");
       return;
     }
@@ -128,8 +347,18 @@ void handleFileUploadByPlanText()
     String content = "";
     serializeJson(doc["content"], content);
 
-    logMessage("Received filename: %s", filename);
-    logMessage("Content: %s", content);
+    if (String(filename) == "config.json")
+    {
+      String validationError;
+      if (!validateConfigurationJson(content, validationError))
+      {
+        server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"" + validationError + "\"}");
+        return;
+      }
+    }
+
+    logInfo("Received filename: %s", filename);
+    logInfo("Content: %s", content.c_str());
 
     // Fájl létrehozása és írása
     File file = SPIFFS.open("/" + String(filename), "w");
@@ -158,22 +387,26 @@ int handleFileUpload()
   if (upload.status == UPLOAD_FILE_START)
   {
     String filename = "/" + upload.filename;
-    logMessage("Uploading file: %s\n", filename.c_str());
+    String writePath = filename == "/config.json" ? "/config.json.upload" : filename;
+    configurationUploadResult = 0;
+    configurationUploadError = "";
+    logInfo("Uploading file: %s\n", filename.c_str());
 
-    File file = SPIFFS.open(filename, "w");
-    logMessage("Createing file: %s\n", filename.c_str());
+    File file = SPIFFS.open(writePath, "w");
+    logInfo("Creating file: %s\n", writePath.c_str());
 
     if (!file)
     {
-      logMessage("Failed to open file for writing\n");
+      logError("Failed to open file for writing\n");
       return -1;
     }
     file.close();
   }
   else if (upload.status == UPLOAD_FILE_WRITE)
   {
-    logMessage("Writing data to file: %s\n", logMessage);
-    File file = SPIFFS.open("/" + upload.filename, "a");
+    String filename = "/" + upload.filename;
+    String writePath = filename == "/config.json" ? "/config.json.upload" : filename;
+    File file = SPIFFS.open(writePath, "a");
     if (file)
     {
       file.write(upload.buf, upload.currentSize);
@@ -181,13 +414,54 @@ int handleFileUpload()
     }
     else
     {
-      logMessage("Failed to open file for writing during upload %s\n", upload.filename.c_str());
+      logError("Failed to open file for writing during upload %s\n", upload.filename.c_str());
       return -1;
     }
   }
   else if (upload.status == UPLOAD_FILE_END)
   {
-    logMessage("File successfully uploaded: %s\n", upload.filename.c_str());
+    logInfo("File successfully uploaded: %s\n", upload.filename.c_str());
+    if (upload.filename == "config.json")
+    {
+      File uploadedConfig = SPIFFS.open("/config.json.upload", "r");
+      String content = uploadedConfig ? uploadedConfig.readString() : "";
+      if (uploadedConfig)
+      {
+        uploadedConfig.close();
+      }
+
+      String validationError;
+      if (!validateConfigurationJson(content, validationError))
+      {
+        SPIFFS.remove("/config.json.upload");
+        configurationUploadResult = 400;
+        configurationUploadError = validationError;
+        logError("Hibás konfiguráció, a jelenlegi fájl megmaradt: %s\n", validationError.c_str());
+        return -2;
+      }
+
+      bool hadPreviousConfig = SPIFFS.exists("/config.json");
+      SPIFFS.remove("/config.json.backup");
+      if (hadPreviousConfig && !SPIFFS.rename("/config.json", "/config.json.backup"))
+      {
+        SPIFFS.remove("/config.json.upload");
+        configurationUploadResult = 500;
+        configurationUploadError = "Nem sikerült a jelenlegi konfiguráció biztonsági mentése.";
+        return -1;
+      }
+
+      if (!SPIFFS.rename("/config.json.upload", "/config.json"))
+      {
+        if (hadPreviousConfig)
+        {
+          SPIFFS.rename("/config.json.backup", "/config.json");
+        }
+        configurationUploadResult = 500;
+        configurationUploadError = "Nem sikerült az új konfiguráció aktiválása.";
+        return -1;
+      }
+      SPIFFS.remove("/config.json.backup");
+    }
   }
 
   return 0;
@@ -195,13 +469,17 @@ int handleFileUpload()
 
 void handleConfigFileUpload()
 {
-  int error = handleFileUpload();
-  if (error == 0)
+  if (configurationUploadResult != 0)
   {
-    // reboot
-    // ESP.restart();
-    // ESP.reset();
-    // loadConfig();
+    int statusCode = configurationUploadResult;
+    String message = configurationUploadError.length() > 0
+                         ? configurationUploadError
+                         : "A konfiguráció feltöltése sikertelen.";
+    server.send(statusCode, "application/json", "{\"status\":\"error\",\"message\":\"" + message + "\"}");
+  }
+  else
+  {
+    server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"A konfiguráció feltöltve és ellenőrizve. Újraindítás szükséges.\"}");
   }
 }
 
@@ -212,7 +490,7 @@ void handleConfiguration()
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  Serial.println("HTTP config request:");
+  logInfo("HTTP config request:\n");
 
   if (server.method() == HTTP_OPTIONS)
   {
@@ -223,7 +501,7 @@ void handleConfiguration()
 
   if (server.method() == HTTP_GET)
   {
-    Serial.println("itt");
+    logDebug("Configuration GET request\n");
     // Válasz a jelenlegi konfiguráció JSON formátumban
     /* StaticJsonDocument<512> jsonBuffer;
      jsonBuffer["wifiSSID"] = config.wifiSSID;

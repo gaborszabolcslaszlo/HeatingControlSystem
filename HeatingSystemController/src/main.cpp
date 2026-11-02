@@ -6,7 +6,11 @@
 #include <PCA9685.h>
 
 #include "certificates.h"
+#include "app_globals.h"
 #include "config.h"
+#include "web_api.h"
+#include "web_ui.h"
+#include "hardware_io.h"
 
 #include <GDBStub.h>
 #include <WebSocketsServer.h>
@@ -16,403 +20,42 @@
 #include <FS.h>
 #include "esp_routes.h"
 
-HeatingSystem *hs;
-
-Ticker timer;
-
-// Globális webszerver változó
-ESP8266WebServer server(80);
-// WebSocket szerver portja
-WebSocketsServer webSocket = WebSocketsServer(81);
-// Jelszó hitelesítéshez
-const char *websocketPassword = "secretpassword";
-
-bool isAuthenticated = false;
-
 const int max_attempts = 1;
 int attempt = 0;
-
-bool isDataNew = false;
-
-int cntrWifiTry = 0;
-
-// I2C címe a PCA9685-nek (alapértelmezett 0x40)
-PCA9685 pwmController;
-
-// Létrehozunk egy std::map-et, ahol mind a kulcs, mind az érték int típusú
-std::map<int, int> IOMap;
-
-// Statikus változó definíciója az osztályon kívüls
-std::map<std::string, float> Sensor::SensorsValue;
-
-// A map konvertálása JSON formátumba
-String IOMapToJson(const std::map<int, int> &intMap,
-                   const std::map<std::string, float> &floatMap,
-                   const std::map<std::string, std::map<std::string, std::string>> &stateMap)
-{
-  // Létrehozunk egy StaticJsonDocument-et
-  StaticJsonDocument<1000> jsonDoc;
-
-  // Integer kulcs-érték párok hozzáadása a JSON-hez
-  for (const auto &pair : intMap)
-  {
-    jsonDoc[String(pair.first)] = pair.second; // Kulcsokat stringgé konvertáljuk a JSON-ban
-  }
-
-  // String kulcs-érték párok hozzáadása a JSON-hez
-  for (const auto &pair : floatMap)
-  {
-    jsonDoc[pair.first.c_str()] = pair.second; // String kulcsok közvetlenül hozzáadhatók
-  }
-
-  // Bejárjuk az ElementsStateMap-et és feltöltjük a JSON-t
-  for (const auto &outerPair : stateMap)
-  {
-    JsonObject element = jsonDoc.createNestedObject(outerPair.first.c_str());
-    for (const auto &innerPair : outerPair.second)
-    {
-      element[innerPair.first.c_str()] = innerPair.second.c_str();
-    }
-  }
-
-  // Serializáljuk a JSON objektumot egy stringgé
-  String jsonString;
-  serializeJson(jsonDoc, jsonString);
-
-  return jsonString;
-}
-
-void handleFile()
-{
-  String path = server.uri();
-  if (path.endsWith("/"))
-    path += "index.html"; // főoldal
-  String contentType = getContentType(path);
-
-  if (SPIFFS.exists(path))
-  {
-    File file = SPIFFS.open(path, "r");
-    server.streamFile(file, contentType);
-    file.close();
-  }
-  else
-  {
-    // Ha nem létezik: Angular routing -> index.html visszaadása
-    File file = SPIFFS.open("/index.html", "r");
-    server.streamFile(file, "text/html");
-    file.close();
-  }
-}
-
-void handleWebUserInterfaceRequest()
-{
-  String path = server.uri(); // pl. "/" vagy "/style.css"
-
-  // Ha "/" érkezik, az index.html legyen
-  if (path == "/")
-  {
-    path = "/index.html";
-  }
-
-  String fullPath = "" + path; // a PROGMEM/SPIFFS útvonal
-  String msg = "Serving: " + fullPath + "\n";
-  logMessage(msg.c_str());
-
-  // MIME típus meghatározása
-  String contentType = "text/plain";
-  bool isGzipped = false;
-
-  if (path.endsWith(".html"))
-  {
-    contentType = "text/html";
-  }
-  else if (path.endsWith(".css"))
-  {
-    contentType = "text/css";
-    fullPath += ".gz";
-    isGzipped = true;
-  }
-  else if (path.endsWith(".js"))
-  {
-    contentType = "application/javascript";
-    fullPath += ".gz";
-    isGzipped = true;
-  }
-  else if (path.endsWith(".png"))
-  {
-    contentType = "image/png";
-  }
-  else if (path.endsWith(".jpg") || path.endsWith(".jpeg"))
-  {
-    contentType = "image/jpeg";
-  }
-  else if (path.endsWith(".svg"))
-  {
-    contentType = "image/svg+xml";
-  }
-
-  if (!SPIFFS.exists(fullPath))
-  {
-    server.send(404, "text/plain", "File not found");
-    return;
-  }
-
-  msg = "Send file: " + fullPath + "\n";
-  logMessage(msg.c_str());
-
-  if (isGzipped)
-  {
-    // server.sendHeader("Content-Encoding", "gzip");
-    server.sendHeader("Cache-Control", "public, max-age=3600");
-    server.sendHeader("ETag", "v1"); // egyszerű statikus ETag
-    server.sendHeader("Connection", "keep-alive");
-  }
-  // server.sendHeader("Cache-Control", "max-age=31536000");
-  server.sendHeader("Keep-Alive", "timeout=200, max=100");
-
-  File file = SPIFFS.open(fullPath, "r");
-  server.streamFile(file, contentType);
-  file.close();
-}
-
-// Hőmérséklet API kezelő
-void handleHeatingRequest()
-{
-  // Ellenőrzés, hogy tartalmazza-e az "element" paramétert a kérés
-  if (server.hasArg("name") && server.hasArg("setTemp"))
-  {
-    String name = server.arg("name"); // Az elem neve a "element" paraméterből
-    String value = server.arg("setTemp");
-    Serial.print("Element received: ");
-    Serial.println(name);
-    Serial.println(value);
-
-    for (auto &element : hs->mergedList)
-    {
-      if (element->name == std::string(name.c_str()))
-      {
-        if (value == "true")
-        {
-          element->setNeedHeating(true);
-          server.send(200, "text/plain", "Heating element: " + name + " request heat, True");
-        }
-        else if (value == "false")
-        {
-          element->setNeedHeating(false);
-          server.send(200, "text/plain", "Heating element: " + name + " request heat, False");
-        }
-        server.send(400, "text/plain", "Heating element: " + name + " request heat, unknown value " + value);
-        return;
-      }
-    }
-    // Ha a paraméter hiányzik, válaszoljunk 400-as státusszal
-    server.send(400, "text/plain", "Error: Unknown element with name" + name);
-  }
-  server.send(400, "text/plain", "Error: Missing 'name' or 'setTemp' parameter.");
-}
-
-// Funkció az újraindításhoz
-void handleReboot()
-{
-  // Ellenőrizzük a paramétereket
-  if (server.arg("user") == "admin" && server.arg("password") == "password")
-  {
-    server.send(200, "text/plain", "Rebooting..."); // Válasz a kérésre
-    delay(1000);                                    // Várjunk egy kicsit, hogy a válasz eljusson
-    ESP.restart();                                  // Újraindítás
-  }
-  else
-  {
-    server.send(401, "text/plain", "Unauthorized"); // Jogosulatlan válasz
-  }
-}
-
-void handleSetTemperatureTest()
-{
-  if (server.method() == HTTP_POST)
-  {
-    // Ellenőrizzük, hogy a kérés tartalmaz-e JSON adatokat
-    if (server.hasArg("plain"))
-    {
-      String body = server.arg("plain");
-      String errorMsg = "";
-
-      // Létrehozzuk a JSON dokumentumot
-      DynamicJsonDocument doc(1024);
-
-      // A JSON adat deszerializálása
-      DeserializationError error = deserializeJson(doc, body);
-
-      if (error)
-      {
-        // Ha nem sikerült deszerializálni, hibát küldünk válaszként
-        server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-        return;
-      }
-
-      // Az összes szenzor értékeinek beállítása
-      for (JsonPair kv : doc.as<JsonObject>())
-      {
-        float tempValue = 0;
-
-        if (kv.value().is<float>())
-        {
-          tempValue = kv.value().as<float>();
-        }
-        else
-        {
-          // Ha nem float típusú, akkor hibát vagy más értéket kezeljünk
-          errorMsg += "Wrong float value:" + kv.value().as<String>() + ", ";
-        }
-
-        // Tároljuk a szenzor id-t és az értékét a sensorTemps térképben
-        Sensor::SensorsValue[std::string(kv.key().c_str())] = tempValue;
-      }
-
-      // Visszajelzés, hogy sikerült beállítani a hőmérsékletet
-      String response = errorMsg == "" ? "{\"status\":\"success\"}" : "{\"status\":\"" + errorMsg + "\"}";
-      server.send(errorMsg == "" ? 200 : 400, "application/json", response);
-    }
-    else
-    {
-      // Ha nincs POST body, akkor hibát küldünk
-      server.send(400, "application/json", "{\"error\":\"No data provided\"}");
-    }
-  }
-}
-
-void handleDeviceInfo()
-{
-  FSInfo fs;
-  SPIFFS.info(fs);
-
-  String json = "{";
-
-  // Uptime
-  json += "\"uptimeMs\":" + String(millis()) + ",";
-
-  // WiFi
-  json += "\"wifi\":{";
-  json += "\"ssid\":\"" + WiFi.SSID() + "\",";
-  json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
-  json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-  json += "\"gateway\":\"" + WiFi.gatewayIP().toString() + "\",";
-  json += "\"subnet\":\"" + WiFi.subnetMask().toString() + "\",";
-  json += "\"dns\":\"" + WiFi.dnsIP().toString() + "\",";
-  json += "\"mac\":\"" + WiFi.macAddress() + "\",";
-  json += "\"hostname\":\"" + WiFi.hostname() + "\"";
-  json += "},";
-
-  // Chip info
-  json += "\"chip\":{";
-  json += "\"chipId\":" + String(ESP.getChipId()) + ",";
-  json += "\"cpuFreqMHz\":" + String(ESP.getCpuFreqMHz()) + ",";
-  json += "\"sdkVersion\":\"" + String(ESP.getSdkVersion()) + "\",";
-  json += "\"coreVersion\":\"" + String(ESP.getCoreVersion()) + "\"";
-  json += "},";
-
-  // Flash info
-  json += "\"flash\":{";
-  json += "\"chipSize\":" + String(ESP.getFlashChipSize()) + ",";
-  json += "\"realChipSize\":" + String(ESP.getFlashChipRealSize()) + ",";
-  json += "\"chipSpeed\":" + String(ESP.getFlashChipSpeed()) + ",";
-  json += "\"chipMode\":" + String(ESP.getFlashChipMode()) + ",";
-  json += "\"sketchSize\":" + String(ESP.getSketchSize()) + ",";
-  json += "\"freeSketchSpace\":" + String(ESP.getFreeSketchSpace());
-  json += "},";
-
-  // SPIFFS info
-  json += "\"spiffs\":{";
-  json += "\"total\":" + String(fs.totalBytes) + ",";
-  json += "\"used\":" + String(fs.usedBytes) + ",";
-  json += "\"free\":" + String(fs.totalBytes - fs.usedBytes) + ",";
-  json += "\"blockSize\":" + String(fs.blockSize) + ",";
-  json += "\"pageSize\":" + String(fs.pageSize) + ",";
-  json += "\"maxOpenFiles\":" + String(fs.maxOpenFiles) + ",";
-  json += "\"maxPathLength\":" + String(fs.maxPathLength);
-  json += "},";
-
-  // RAM / heap
-  json += "\"heap\":{";
-  json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
-  json += "\"maxFreeBlock\":" + String(ESP.getMaxFreeBlockSize()) + ",";
-  json += "\"fragmentation\":" + String(ESP.getHeapFragmentation());
-  json += "},";
-
-  // Reset info
-  json += "\"reset\":{";
-  json += "\"reason\":\"" + String(ESP.getResetReason()) + "\",";
-  json += "\"info\":\"" + String(ESP.getResetInfo()) + "\"";
-  json += "}";
-
-  json += "}";
-
-  server.send(200, "application/json", json);
-}
-
-void hadleStateRequest()
-{
-  // JSON string létrehozása
-  String jsonResponse = IOMapToJson(IOMap, Sensor::SensorsValue, HeatingElement::ElementsStateMap);
-
-  // Válasz küldése JSON formátumban
-  server.send(200, "application/json", jsonResponse);
-}
-
-void writePwmIO(int id, int duty)
-{
-  pwmController.setChannelDutyCycle(id, duty * 4096 / 100);
-  IOMap[id] = duty;
-  isDataNew = true;
-}
-
-void writeIO(int id, int value)
-{
-  if (value > 0)
-  {
-    pwmController.setChannelDutyCycle(id, 4096);
-    IOMap[id] = 100;
-  }
-  else
-  {
-    pwmController.setChannelDutyCycle(id, 0);
-    IOMap[id] = 0;
-  }
-  isDataNew = true;
-}
 
 // WebSocket esemény kezelő
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
+  (void)length;
   switch (type)
   {
   case WStype_DISCONNECTED:
-    Serial.printf("[%u] Disconnected!\n", num);
-    isAuthenticated = false; // Ha a kliens lecsatlakozik, újra kell hitelesíteni
+    logDebug("[%u] Disconnected!\n", num);
+    isAuthenticated = false;
     break;
 
   case WStype_CONNECTED:
   {
     IPAddress ip = webSocket.remoteIP(num);
-    Serial.printf("[%u] Connected from %s\n", num, ip.toString().c_str());
+    logDebug("[%u] Connected from %s\n", num, ip.toString().c_str());
   }
   break;
 
   case WStype_TEXT:
-    Serial.printf("[%u] Text: %s\n", num, payload);
+    logDebug("[%u] Text: %s\n", num, payload);
 
     // Az első üzenet a jelszó hitelesítésére szolgál
     if (!isAuthenticated)
     {
       if (strcmp((const char *)payload, websocketPassword) > 0)
       {
-        Serial.println("Hitelesítés sikeres!");
+        logInfo("Hitelesítés sikeres!\n");
         isAuthenticated = true;
         webSocket.sendTXT(num, "Authentication successful!");
       }
       else
       {
-        Serial.println("Hitelesítés sikertelen!");
+        logWarn("Hitelesítés sikertelen!\n");
         webSocket.sendTXT(num, "Authentication failed!");
         webSocket.disconnect(num); // Ha a hitelesítés sikertelen, bontjuk a kapcsolatot
       }
@@ -420,7 +63,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     else
     {
       // Ha már hitelesítettük a klienst, itt kezelhetjük az üzeneteket
-      Serial.println("Authenticated data received");
+      logDebug("Authenticated data received\n");
     }
     break;
   }
@@ -428,43 +71,63 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 
 void onTimerISR()
 {
-  if (config.communicationTypeWebApp == "WS")
-  {
-    webSocket.loop(); // Az időzítő minden hívásnál váltja az értéket
-  }
+  // ISR-ben nincs Serial, logMessage vagy állapotgép-frissítés.
+  // Ezek a műveletek a loop()-ban, az updatePending ellenőrzése után futnak.
+  heatingSystemUpdatePending = true;
+
   hs->update();
+}
+
+void printMemoryDiagnostics(const char *source)
+{
+  logInfo("[MEM] source=%s free=%uB fragmentation=%u%% maxBlock=%uB uptime=%lus\n",
+          source,
+          static_cast<unsigned int>(ESP.getFreeHeap()),
+          static_cast<unsigned int>(ESP.getHeapFragmentation()),
+          static_cast<unsigned int>(ESP.getMaxFreeBlockSize()),
+          millis() / 1000UL);
 }
 
 int val = 0;
 
-void setup()
+void initializeSerialAndHardware()
 {
-  // Soros port inicializálása
   Serial.begin(115200);
   Serial.flush();
-  Wire.begin(D2, D1); // SDA: D2, SCL: D1 (ESP8266)
+  logInfo("[BOOT] reset=%s\n", ESP.getResetInfo().c_str());
+  printMemoryDiagnostics("setup");
 
-  pwmController.setupSingleDevice(Wire, 0x41); // Az alapértelmezett I2C cím: 0x40
-  pwmController.setToServoFrequency();         // Szervómotorokhoz beállított frekvencia
+  Wire.begin(D2, D1);
+  pwmController.setupSingleDevice(Wire, 0x41);
+  pwmController.setToServoFrequency();
   pwmController.setAllDevicesOutputsInverted();
   pwmController.setupOutputEnablePin(D0);
   pwmController.setOutputsHighWhenDisabled();
   pwmController.disableOutputs(D0);
 
-  // pwmController.setAllChannelsDutyCycle(0, 0);
+  for (int i = 1; i <= 8; i++)
+  {
+    IOMap[i] = 0;
+  }
 
   delay(500);
-  // gdbstub_init();
-  Serial.println();
-  logMessage("Start\n");
-  // SPIFFS inicializálása és konfiguráció betöltése
+  logInfo("Start\n");
+}
+
+void initializeHeatingSystem()
+{
   loadConfig();
-
   hs = new HeatingSystem("/config.json");
-  // NTP kliens indítása
-  timeClient.begin();
-  timeClient.update();
+}
 
+void initializeHeatingSensors()
+{
+  hs->printHeatingSystem();
+  setupSensors();
+}
+
+void configureWifiMode()
+{
   WiFi.hostname(config.hostname);
 
   if (config.wifiMode == "STA+AP")
@@ -479,151 +142,261 @@ void setup()
   {
     WiFi.mode(WIFI_AP);
   }
+}
 
-  if (config.wifiMode == "STA+AP" || config.wifiMode == "STA")
+void connectToWifiStation()
+{
+  if (config.wifiMode != "STA+AP" && config.wifiMode != "STA")
   {
-    WiFi.begin(config.wifiSSID, config.wifiPassword);
-    while (WiFi.status() != WL_CONNECTED && attempt < max_attempts)
-    {
-      delay(500);
-      logMessage(".\n");
-      attempt++;
-    }
-    if (WiFi.waitForConnectResult() == WL_CONNECTED)
-    {
-    }
+    return;
   }
 
-  if (config.wifiMode == "STA+AP" || config.wifiMode == "AP")
+  WiFi.begin(config.wifiSSID, config.wifiPassword);
+  while (WiFi.status() != WL_CONNECTED && attempt < max_attempts)
   {
-    WiFi.softAP(config.APSSID, config.APPassword);
-    logMessage("AP IP: %s\n", WiFi.softAPIP().toString().c_str());
+    delay(500);
+    logDebug(".\n");
+    attempt++;
   }
 
+  WiFi.waitForConnectResult();
+}
+
+void startWifiAccessPoint()
+{
+  if (config.wifiMode != "STA+AP" && config.wifiMode != "AP")
+  {
+    return;
+  }
+
+  WiFi.softAP(config.APSSID, config.APPassword);
+  logInfo("AP IP: %s\n", WiFi.softAPIP().toString().c_str());
+}
+
+void initializeNetwork()
+{
+  timeClient.begin();
+  timeClient.update();
+  configureWifiMode();
+  connectToWifiStation();
+  startWifiAccessPoint();
+}
+
+void registerHttpRoutes()
+{
   server.keepAlive(true);
   server.enableCORS(true);
-  // HTTPS beállítása
-  // server.getServer()
-  // .setRSACert(new X509List(cert), new PrivateKey(private_key));
 
-  // CORS fejléc beállítása
   server.on("/configuration", HTTP_OPTIONS, []()
             {
-  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-  server.send(200); });
+              server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+              server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+              server.send(200); });
 
-  // API végpontok
   server.on("/heatingRequest", HTTP_GET, handleHeatingRequest);
   server.on("/logs", HTTP_GET, handleLogs);
   server.on("/configuration", HTTP_GET, handleConfiguration);
-  // server.on("/configuration", HTTP_POST, handleConfiguration);
-  server.on("/configuration", HTTP_POST, []()
-            { server.send(200, "text/plain", "File Uploaded Successfully"); }, handleConfigFileUpload);
-  // Beállítjuk a reboot végpontot
+  server.on("/configuration", HTTP_POST, handleConfigFileUpload, handleFileUpload);
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/state", HTTP_GET, hadleStateRequest);
   server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
   server.on("/deviceInfo", HTTP_GET, handleDeviceInfo);
+  server.on("/manualControlPumps", HTTP_GET, handleManualMode);
 
   server.on("/", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/styles.css", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/polyfills.js", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/main.js", HTTP_GET, handleWebUserInterfaceRequest);
-
   setupWebRoutes(server);
-
-  // Alap handler: minden kérés ide jön
   server.onNotFound(handleFile);
+}
 
-  const char *headerkeys[] = {"User-Agent", "Content-Type", "Request Headers"};
-  size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
-  // ask server to track these headers
-  server.collectHeaders(headerkeys, headerkeyssize);
-
-  // Webszerver indítása
-  // Start the mDNS responder with the domain "myesp.local"
-  if (MDNS.begin("kazan"))
-  {
-    Serial.println("mDNS responder started with domain: http://kazan.local");
-  }
-  else
-  {
-    Serial.println("Error setting up mDNS responder!");
-  }
-
+void initializeWebServer()
+{
+  registerHttpRoutes();
   server.begin();
-  logMessage("HTTPS szerver indítva.\n");
-  // MDNS.addService("http", "tcp", 80);
+  logInfo("HTTP szerver indítva.\n");
+}
 
-  hs->printHeatingSystem();
-  // Szenzorok inicializálása
-  setupSensors();
-
-  // WebSocket szerver indítása
-  if (config.communicationTypeWebApp == "WS")
+void initializeWebSocket()
+{
+  if (config.communicationTypeWebApp != "WS")
   {
-    webSocket.begin();
-    webSocket.onEvent(webSocketEvent);
+    return;
   }
 
-  timer.attach(1, onTimerISR);
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+}
 
+void initializeRuntime()
+{
+  timer.attach(1, onTimerISR);
   pwmController.enableOutputs(D0);
   ESP.wdtEnable(5000);
+}
 
-  // ideiglenesen automatikusan elinditja a fureskerelemet
+void enableInitialHeatingDemand()
+{
   for (auto &element : hs->mergedList)
   {
-    std::string name = "PadloKozos";
-    if (element->name == std::string(name.c_str()))
+    if (element->name == "PadloKozos")
     {
       element->setNeedHeating(true);
     }
   }
 }
 
-void loop()
+void setup()
 {
-  if (config.wifiMode == "STA+AP" || config.wifiMode == "STA")
+  initializeSerialAndHardware();
+  initializeHeatingSystem();
+  initializeNetwork();
+  initializeWebServer();
+  initializeHeatingSensors();
+  initializeWebSocket();
+  initializeRuntime();
+  enableInitialHeatingDemand();
+}
+
+void reconnectWifiIfNeeded()
+{
+  if (config.wifiMode != "STA+AP" && config.wifiMode != "STA")
   {
-    if (WiFi.status() != WL_CONNECTED)
-    {
-      if (cntrWifiTry == 60)
-      {
-        Serial.print("Csatlakozás a WiFi-hez...\n");
-        WiFi.begin(config.wifiSSID, config.wifiPassword); // Próbálkozzunk csatlakozni
-      }
-      cntrWifiTry++;
-    }
+    return;
   }
 
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    return;
+  }
+
+  if (cntrWifiTry == 60)
+  {
+    logInfo("Csatlakozás a WiFi-hez...\n");
+    WiFi.begin(config.wifiSSID, config.wifiPassword);
+  }
+  cntrWifiTry++;
+}
+
+void handleHttpRequests()
+{
   try
   {
-    // A kód, amely hibát okozhat
     server.handleClient();
   }
   catch (const std::exception &e)
   {
-    // Hiba kezelése
-    Serial.println("Kivétel történt:");
-    Serial.println(e.what());
+    logError("Kivétel történt: %s\n", e.what());
   }
+}
 
+void updateSensorsAndReportDuration()
+{
   timeClient.update();
+  unsigned long sensorUpdateStarted = millis();
   updateDsSensors();
-  // hs->update();
+  unsigned long sensorUpdateDuration = millis() - sensorUpdateStarted;
 
-  // 5 másodperc várakozás
-  delay(1000);
-  // logMessage("Temp: %f", temperature);
-  MDNS.update();
-
-  // Ha hitelesítés sikeres, folyamatosan küldhetünk adatokat
-  if (config.communicationTypeWebApp == "WS" && isAuthenticated && isDataNew)
+  if (sensorUpdateDuration > 500UL)
   {
-    isDataNew = false;
-    String data = IOMapToJson(IOMap, Sensor::SensorsValue, HeatingElement::ElementsStateMap);
-    webSocket.broadcastTXT(data);
+    logWarn("updateDsSensors took %lums\n", sensorUpdateDuration);
   }
+}
+
+void consumeHeatingSystemUpdateSignal()
+{
+  bool updatePending = false;
+  noInterrupts();
+  if (heatingSystemUpdatePending)
+  {
+    heatingSystemUpdatePending = false;
+    updatePending = true;
+  }
+  interrupts();
+
+  if (updatePending)
+  {
+    // Az állapotgép frissítését az onTimerISR végzi, a meglévő működés szerint.
+    unsigned long heatingUpdateStarted = millis();
+    unsigned long heatingUpdateDuration = millis() - heatingUpdateStarted;
+    if (heatingUpdateDuration > 500UL)
+    {
+      logWarn("hs->update took %lums\n", heatingUpdateDuration);
+    }
+  }
+}
+
+void processWebSocket()
+{
+  if (config.communicationTypeWebApp == "WS")
+  {
+    webSocket.loop();
+  }
+}
+
+void reportPeriodicMemoryUsage()
+{
+  if (millis() - lastMemoryDiagnosticMs >= 10000UL)
+  {
+    lastMemoryDiagnosticMs = millis();
+    printMemoryDiagnostics("loop");
+  }
+}
+
+void broadcastStateIfChanged()
+{
+  if (config.communicationTypeWebApp != "WS" || !isAuthenticated || !isDataNew)
+  {
+    return;
+  }
+
+  isDataNew = false;
+  stateJsonDocument.clear();
+  stateJsonResponse.reserve(STATE_JSON_RESPONSE_SIZE);
+  stateJsonResponse = "";
+
+  for (const auto &pair : IOMap)
+  {
+    char key[sizeof(int) * 3 + 3];
+    const int keyLength = snprintf(key, sizeof(key), "%d", pair.first);
+    if (keyLength < 0 || static_cast<size_t>(keyLength) >= sizeof(key))
+    {
+      stateJsonResponse = "{\"error\":\"Invalid integer JSON key\"}";
+      break;
+    }
+    stateJsonDocument[key] = pair.second;
+  }
+
+  for (const auto &pair : Sensor::SensorsValue)
+  {
+    stateJsonDocument[pair.first.c_str()] = pair.second;
+  }
+
+  for (const auto &outerPair : HeatingElement::ElementsStateMap)
+  {
+    JsonObject element = stateJsonDocument.createNestedObject(outerPair.first.c_str());
+    for (const auto &innerPair : outerPair.second)
+    {
+      element[innerPair.first.c_str()] = innerPair.second.data();
+    }
+  }
+
+  if (!stateJsonDocument.overflowed() && stateJsonResponse.isEmpty())
+  {
+    serializeJson(stateJsonDocument, stateJsonResponse);
+    webSocket.broadcastTXT(stateJsonResponse);
+  }
+}
+
+void loop()
+{
+  reconnectWifiIfNeeded();
+  handleHttpRequests();
+  updateSensorsAndReportDuration();
+  consumeHeatingSystemUpdateSignal();
+  processWebSocket();
+  reportPeriodicMemoryUsage();
+  broadcastStateIfChanged();
+  delay(10);
 }

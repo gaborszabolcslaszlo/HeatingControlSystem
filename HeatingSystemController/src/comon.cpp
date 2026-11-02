@@ -1,4 +1,8 @@
+#define COMON_IMPLEMENTATION
 #include "comon.h"
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
 
 #ifndef UNIT_TESTING
 WiFiUDP ntpUDP;
@@ -90,60 +94,9 @@ void enforceMaxLogFiles()
     }
 }
 
-void logMessage(const char *format, ...)
-{
-    char buffer[256];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-
-    String timestamp = timeClient.getFormattedTime(); // pl. "12:34:56"
-    String logEntry = String("[") + timestamp + String("] ") + String(buffer);
-
-    // 1. Kiíratás Serial-ra
-    Serial.print(logEntry);
-
-    // 2. Kiíratás fájlba (SPIFFS)
-    String currentLogFile = getLogFileName();
-    File logFile = SPIFFS.open(currentLogFile, "a");
-    if (logFile)
-    {
-        if (logFile.size() + logEntry.length() > maxLogFileSize)
-        {
-            logFile.close();
-            enforceMaxLogFiles();
-            // Ha a fájl túl nagy, létrehozunk egy új fájlnevet időbélyeggel
-            String newLogFile = currentLogFile;
-            int counter = 1;
-            while (SPIFFS.exists(newLogFile))
-            {
-                newLogFile = currentLogFile.substring(0, currentLogFile.length() - 4) + "_" + String(counter) + ".txt";
-                counter++;
-            }
-            currentLogFile = newLogFile;
-            logFile = SPIFFS.open(currentLogFile, "a");
-        }
-        if (logFile)
-        {
-            logFile.print(logEntry);
-            logFile.close();
-        }
-        else
-        {
-            Serial.println("Nem sikerült megnyitni az új log fájlt.");
-        }
-    }
-    else
-    {
-        Serial.println("Nem sikerült megnyitni a log fájlt.");
-    }
-}
-
 boolean sendFile(String path)
 {
     File file = SPIFFS.open(path, "r");
-    logMessage("sendFile() path: %s\n", path.c_str());
     if (!file)
     {
         return false;
@@ -203,4 +156,5 @@ void handleLogs()
 void logMessage(const char *format, ...)
 {
 }
+
 #endif
