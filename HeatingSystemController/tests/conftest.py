@@ -15,6 +15,7 @@ _CURRENT_TEST: str | None = None
 _TEST_CASES: dict[str, dict] = {}
 _TEST_RESULTS: dict[str, str] = {}
 STATE_SETTLE_SECONDS = 5.0
+API_REQUEST_RETRIES = 2
 
 
 class TraceSession(requests.Session):
@@ -68,19 +69,39 @@ class TraceSession(requests.Session):
             "body": self._body(kwargs.get("data", kwargs.get("json"))),
         }
 
-        try:
-            response = super().request(method, url, **kwargs)
-        except Exception as exc:
-            self.trace.append(
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "testCase": _CURRENT_TEST,
-                    "request": request_data,
-                    "error": repr(exc),
-                    "durationMs": round((time.perf_counter() - started) * 1000, 2),
-                }
-            )
-            raise
+        for attempt in range(API_REQUEST_RETRIES + 1):
+            try:
+                response = super().request(method, url, **kwargs)
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                if attempt < API_REQUEST_RETRIES:
+                    time.sleep(0.25 * (attempt + 1))
+                    continue
+                request_data["attempts"] = attempt + 1
+                self.trace.append(
+                    {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "testCase": _CURRENT_TEST,
+                        "request": request_data,
+                        "error": repr(exc),
+                        "durationMs": round((time.perf_counter() - started) * 1000, 2),
+                    }
+                )
+                raise
+
+            if response.status_code != 429:
+                break
+
+            if attempt < API_REQUEST_RETRIES:
+                retry_after_value = response.headers.get("Retry-After", "0.25")
+                try:
+                    retry_after = max(float(retry_after_value), 0.25)
+                except ValueError:
+                    retry_after = 0.25 * (attempt + 1)
+                response.close()
+                time.sleep(retry_after)
+
+        # Ha az összes próbálkozás 429 választ adott, az utolsó válasz maradjon
+        # meg a riportban és a teszt kapjon egyértelmű HTTP-hibát.
 
         # Use the prepared request so automatically added requests headers
         # (for example User-Agent and Accept-Encoding) are included too.
@@ -716,7 +737,7 @@ def api_session(request, api_base_url: str, api_verify_tls: bool) -> requests.Se
     session = TraceSession()
     session.verify = api_verify_tls
     try:
-        response = session.get(f"{api_base_url}/state", timeout=5)
+        response = session.get(f"{api_base_url}/state", timeout=(2, 15))
         response.raise_for_status()
     except requests.RequestException as exc:
         _write_trace(session, request.config.getoption("--api-trace"))
@@ -738,7 +759,7 @@ def api_session(request, api_base_url: str, api_verify_tls: bool) -> requests.Se
 def set_sensor_values(api_session: requests.Session, api_base_url: str):
     def _set_sensor_values(values: dict[str, float]) -> dict:
         response = api_session.post(
-            f"{api_base_url}/setTemp", json=values, timeout=5
+            f"{api_base_url}/setTemp", json=values, timeout=(2, 15)
         )
         response.raise_for_status()
         return response.json()
@@ -754,7 +775,7 @@ def read_state(api_session: requests.Session, api_base_url: str):
         if wait_seconds > 0:
             time.sleep(wait_seconds)
             api_session.wait_before_next_state = 0.0
-        response = api_session.get(f"{api_base_url}/state", timeout=5)
+        response = api_session.get(f"{api_base_url}/state", timeout=(2, 15))
         response.raise_for_status()
         value = response.json()
         _read_state._last_trace_index = len(api_session.trace) - 1

@@ -24,6 +24,13 @@ HEATING_CONTROLLER_URL=http://192.168.0.106 \
 python -m pytest -m integration -v
 ```
 
+### API-kérés korlátozás kezelése
+
+A firmware a túl gyors dinamikus API-kérésekre `429 Too Many Requests` választ
+adhat. A tesztek ezt automatikusan kezelik: legfeljebb két alkalommal újrapróbálják
+a kérést, és követik az eszköz `Retry-After` fejlécét. Ha a harmadik próbálkozás
+is `429`, a teszt a hibás választ rögzíti a riportban és hibával leáll.
+
 Verbose módok:
 
 ```bash
@@ -134,6 +141,69 @@ Az első `/state` lekérés a `setTemp` utáni, jelenleg 5 másodperces beállá
 időt a közös `read_state` fixture-en keresztül kivárja. A kérések bekerülnek a
 JSON, Markdown és HTML API riportokba is.
 
+### PID pumpa teszt
+
+A `test_puffer_pid_pumps_produce_pwm_output` teszt hőmérsékletadatokat küld a
+kazán és a puffer szenzoraira, majd a beállási idő után lekéri a `/state`
+végpontot. Ellenőrzi, hogy a puffer `CHARGE` állapotba került, és hogy a
+konfiguráció szerinti 3-as és 4-es PWM kimeneten számszerű, 0 és 100 közötti
+vezérlési érték jelent meg.
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 \
+python -m pytest tests/test_api.py::test_puffer_pid_pumps_produce_pwm_output \
+  -m integration -vv -s
+```
+
+Ez az API integrációs teszt azt ellenőrzi, hogy a PID pumpa kimenete létrejön és
+érvényes PWM tartományban van. A PID matematikai szabályozási görbéjének külön
+vizsgálatához a firmware oldalon egységteszt szükséges, mert az API state
+válaszából csak az aktuális kimenet figyelhető meg.
+
+A `test_puffer_pid_output_follows_temperature_error` teszt a `CHARGE` állapot
+alatt csak a `dischargepump: false` konfigurációjú 4-es pumpa kimenetének
+trendjét vizsgálja. Negatív hibánál alacsonyabb, pozitív hibánál magasabb,
+nulla hibánál stabil, majd ismét negatív hibánál csökkenő kimenetet vár. A
+3-as, `dischargepump: true` pumpának közben kikapcsolva kell maradnia.
+
+A `test_puffer_discharge_uses_only_discharge_pid_pump` teszt a
+`DISCHARGE` állapotban ellenőrzi a pumpaszerepeket. A kazán retour értéke 45 °C
+alatt marad, ezért a kazán nem válthat `HEATING` állapotba. Ilyenkor csak a
+3-as, `dischargepump: true` pumpa lehet aktív, a 4-es pumpának kikapcsolva kell
+maradnia.
+
+A DISCHARGE PID emelkedési és csökkenési trendje a jelenlegi konfigurációval
+nem vizsgálható ugyanebben az állapotban, mert a PID bemenete a kazán retour
+szenzora. 45 °C fölötti retourérték a kazánt `HEATING` állapotba viszi, ami a
+vezérlőt visszaváltja `CHARGE` működésre. Ehhez külön PID bemeneti szenzor vagy
+firmware oldali mérési interfész szükséges.
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 \
+python -m pytest \
+  tests/test_api.py::test_puffer_pid_output_follows_temperature_error \
+  -m integration -vv -s
+```
+
+A `DISCHARGE` trendteszt külön futtatása:
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 \
+python -m pytest \
+  tests/test_api.py::test_puffer_discharge_uses_only_discharge_pid_pump \
+  -m integration -vv -s
+```
+
+A két trendteszt együttes futtatása:
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 \
+python -m pytest \
+  tests/test_api.py::test_puffer_pid_output_follows_temperature_error \
+  tests/test_api.py::test_puffer_discharge_uses_only_discharge_pid_pump \
+  -m integration -vv -s
+```
+
 ### Az összes API stressztesztje
 
 A további stressztesztek a következő végpontokat vizsgálják:
@@ -141,6 +211,41 @@ A további stressztesztek a következő végpontokat vizsgálják:
 Az újraindítási teszt csak hibás hitelesítést küld, ezért nem indítja újra az
 eszközt. A konfiguráció POST feltöltését a teszt nem ismétli, mert az flashre
 ír és megváltoztatná az eszköz konfigurációját.
+
+A `/manualControlPumps` végpont `POST` kérést és JSON törzset használ. A JSON
+objektum kulcsa az IO csatorna, értéke pedig a közvetlen PWM jel 0 és 100 között:
+
+```bash
+curl -X POST http://192.168.0.106/manualControlPumps \
+  -H 'Content-Type: application/json' \
+  -d '{"3":50,"4":0}'
+```
+
+Ez az IO3 csatornát 50%-os PWM értékre, az IO4 csatornát pedig 0%-ra állítja.
+
+IO-nkénti manuális felülbírálás explicit formában:
+
+```bash
+curl -X POST http://192.168.0.106/manualControlPumps \
+  -H 'Content-Type: application/json' \
+  -d '{"3":{"manual":true,"value":50},"4":{"manual":false}}'
+```
+
+Ebben a példában az IO3-at a vezérlő nem írhatja felül, az IO4 pedig automatikus
+vezérlés alatt marad. Egy IO visszaadásához az automatikus vezérlőnek a hozzá
+tartozó `manual` értéket `false`-ra kell állítani.
+
+A manuális felülbírálás és az automatikus visszavétel tesztje. A teszt külön
+ellenőrzi az IO3-at `DISCHARGE`, valamint az IO4-et `CHARGE` állapotban. A
+háttérben futó vezérlő írása manuális módban nem változtatja meg az értéket,
+majd a flag kikapcsolása után a vezérlő visszaveszi az IO-t:
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 \
+python -m pytest \
+  tests/test_api.py::test_manual_control_pumps_override_each_io_independently \
+  -m integration -vv -s
+```
 
 Az összes API stresszteszt futtatása:
 

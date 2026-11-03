@@ -87,6 +87,20 @@ void Pump::print()
 
 void Pump::update()
 {
+    if (!active)
+    {
+        controlSignal = 0;
+        if (workingMode == PumpWorkingMode::ONOFF)
+        {
+            writeIO(id, 0);
+        }
+        else if (workingMode == PumpWorkingMode::PWM)
+        {
+            writePwmIO(id, 0);
+        }
+        return;
+    }
+
     if (workingMode == PumpWorkingMode::ONOFF)
     {
         writeIO(id, controlSignal);
@@ -98,12 +112,19 @@ void Pump::update()
             float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
             controlSignal = pid_c.compute(pid_c.setPointConfig, tempValue);
         }
+        else
+        {
+            // Letiltott PID esetén a korábbi PWM érték nem maradhat a kimeneten.
+            controlSignal = 0;
+        }
         writePwmIO(id, controlSignal);
     }
 }
 
 void Pump::enable()
 {
+    active = true;
+
     if (workingMode == PumpWorkingMode::ONOFF)
     {
         setControlSignal(100);
@@ -116,6 +137,8 @@ void Pump::enable()
 }
 void Pump::disable(bool skipPidPump)
 {
+    active = false;
+
     if (workingMode == PumpWorkingMode::ONOFF)
     {
         setControlSignal(0);
@@ -124,5 +147,6 @@ void Pump::disable(bool skipPidPump)
     {
         float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
         pid_c.setEnabled(false, tempValue);
+        controlSignal = 0;
     }
 }

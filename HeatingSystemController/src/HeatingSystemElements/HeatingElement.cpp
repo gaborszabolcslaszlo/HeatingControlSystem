@@ -87,6 +87,13 @@ void HeatingElement::activatePump(bool dischargePumpsOnly)
         {
             pump.enable();
         }
+        else
+        {
+            // Állapotváltáskor az előző üzemmód pumpája ne maradjon aktív.
+            // PWM pumpánál a PID letiltása után a következő update() 0
+            // kimenetet ír a hardverre.
+            pump.disable(false);
+        }
     }
 }
 

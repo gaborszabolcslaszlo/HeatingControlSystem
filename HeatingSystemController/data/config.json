@@ -126,8 +126,8 @@
                         "IOnumber": 4,
                         "pid": {
                             "enabled": true,
-                            "p": 0.01,
-                            "i": 0.05,
+                            "p": 0.1,
+                            "i": 1,
                             "d": 0.00,
                             "tempSensorId": "2832B643D42F2A25",
                             "setPoint": 60.0
@@ -143,8 +143,8 @@
                         "dischargepump": true,
                         "pid": {
                             "enabled": true,
-                            "p": 0.01,
-                            "i": 0.05,
+                            "p": 0.1,
+                            "i": 1,
                             "d": 0.0,
                             "tempSensorId": "2832B643D42F2A25",
                             "setPoint": 60.0

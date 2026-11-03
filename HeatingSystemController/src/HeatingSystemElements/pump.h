@@ -32,6 +32,7 @@ public:
 
     PumpWorkingMode workingMode;
     int id;
+    bool active = false;
 
     Pump();
 
@@ -55,7 +56,7 @@ public:
     void disable(bool skipPidPump = true);
 
 private:
-    int controlSignal;
+    int controlSignal = 0;
     PID pid_c;
 };
 #endif

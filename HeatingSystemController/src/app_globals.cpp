@@ -13,6 +13,7 @@ unsigned long lastMemoryDiagnosticMs = 0;
 volatile bool heatingSystemUpdatePending = false;
 PCA9685 pwmController;
 std::map<int, int> IOMap;
+std::array<bool, MAX_IO_ID + 1> manualIOOverrides{};
 std::map<std::string, float> Sensor::SensorsValue;
 StaticJsonDocument<STATE_JSON_DOCUMENT_SIZE> stateJsonDocument;
 String stateJsonResponse;

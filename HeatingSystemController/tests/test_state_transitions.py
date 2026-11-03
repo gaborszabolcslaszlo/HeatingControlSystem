@@ -51,7 +51,7 @@ def _request_radiator_heat(api_session, api_base_url: str, enabled: bool) -> Non
     response = api_session.get(
         f"{api_base_url}/heatingRequest",
         params={"name": RADIATOR, "setTemp": "true" if enabled else "false"},
-        timeout=5,
+        timeout=(2, 15),
     )
     # The endpoint currently sends a fallback response after the success response.
     assert response.status_code in (200, 400)

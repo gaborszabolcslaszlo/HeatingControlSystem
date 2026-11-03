@@ -201,7 +201,7 @@ void registerHttpRoutes()
   server.on("/state", HTTP_GET, hadleStateRequest);
   server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
   server.on("/deviceInfo", HTTP_GET, handleDeviceInfo);
-  server.on("/manualControlPumps", HTTP_GET, handleManualMode);
+  server.on("/manualControlPumps", HTTP_POST, handleManualMode);
 
   server.on("/", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/styles.css", HTTP_GET, handleWebUserInterfaceRequest);

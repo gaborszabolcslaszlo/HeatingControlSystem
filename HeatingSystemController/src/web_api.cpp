@@ -2,15 +2,42 @@
 
 #include <ArduinoJson.h>
 #include <FS.h>
+#include <cstdlib>
+#include <cmath>
 #include <map>
 #include <string>
 
 #include "app_globals.h"
+#include "hardware_io.h"
 #include "HeatingSystemElements/HeatingElement.h"
 #include "HeatingSystemElements/Sensor.h"
 #include "comon.h"
+
+bool allowApiRequest()
+{
+  static unsigned long lastRequestAt = 0;
+  static bool hasPreviousRequest = false;
+  const unsigned long now = millis();
+
+  if (hasPreviousRequest && now - lastRequestAt < API_MIN_REQUEST_INTERVAL_MS)
+  {
+    server.sendHeader("Retry-After", "1");
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return false;
+  }
+
+  lastRequestAt = now;
+  hasPreviousRequest = true;
+  return true;
+}
+
 void handleHeatingRequest()
 {
+  if (!allowApiRequest())
+  {
+    return;
+  }
+
   // Ellenőrzés, hogy tartalmazza-e az "element" paramétert a kérés
   if (server.hasArg("name") && server.hasArg("setTemp"))
   {
@@ -52,6 +79,11 @@ void handleHeatingRequest()
 // Funkció az újraindításhoz
 void handleReboot()
 {
+  if (!allowApiRequest())
+  {
+    return;
+  }
+
   // Ellenőrizzük a paramétereket
   if (server.arg("user") == "admin" && server.arg("password") == "password")
   {
@@ -67,6 +99,11 @@ void handleReboot()
 
 void handleSetTemperatureTest()
 {
+  if (!allowApiRequest())
+  {
+    return;
+  }
+
   if (server.method() == HTTP_POST)
   {
     // Ellenőrizzük, hogy a kérés tartalmaz-e JSON adatokat
@@ -147,55 +184,122 @@ void handleSetTemperatureTest()
 
 void handleManualMode()
 {
-  // Ellenőrizzük, hogy a kérés tartalmaz-e JSON adatokat
-  if (server.hasArg("plain"))
+  if (!allowApiRequest())
   {
-    String body = server.arg("plain");
-    String errorMsg = "";
+    return;
+  }
 
-    // Létrehozzuk a JSON dokumentumot
-    DynamicJsonDocument doc(1024);
+  if (!server.hasArg("plain"))
+  {
+    server.send(400, "application/json", "{\"error\":\"No JSON body provided\"}");
+    return;
+  }
 
-    // A JSON adat deszerializálása
-    DeserializationError error = deserializeJson(doc, body);
+  String body = server.arg("plain");
+  StaticJsonDocument<512> doc;
+  DeserializationError error = deserializeJson(doc, body);
 
-    if (error)
+  if (error || !doc.is<JsonObject>())
+  {
+    server.send(400, "application/json", "{\"error\":\"Expected a JSON object\"}");
+    return;
+  }
+
+  struct ManualOutput
+  {
+    int io;
+    bool manual;
+    int duty;
+  } outputs[8];
+  size_t outputCount = 0;
+
+  // Először minden mezőt ellenőrzünk, így hibás kérésnél nem történik
+  // részleges IO-módosítás.
+  for (JsonPair kv : doc.as<JsonObject>())
+  {
+    const char *key = kv.key().c_str();
+    char *end = nullptr;
+    long io = std::strtol(key, &end, 10);
+    if (key[0] == '\0' || end == key || *end != '\0' ||
+        io < 0 || io > 255 || IOMap.find(static_cast<int>(io)) == IOMap.end())
     {
-      // Ha nem sikerült deszerializálni, hibát küldünk válaszként
-      server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+      server.send(400, "application/json", "{\"error\":\"Invalid or unknown IO key\"}");
       return;
     }
 
-    // Az összes szenzor értékeinek beállítása
-    for (JsonPair kv : doc.as<JsonObject>())
+    bool manual = true;
+    float dutyValue = 0.0f;
+
+    if (kv.value().is<JsonObject>())
     {
-      float duty = 0;
-      int index = 0;
-      if (kv.value().is<float>())
+      JsonObject output = kv.value().as<JsonObject>();
+      if (!output.containsKey("manual") || !output["manual"].is<bool>())
       {
-        duty = kv.value().as<float>();
-        index = int(kv.key().c_str());
+        server.send(400, "application/json", "{\"error\":\"Each IO object needs a boolean manual flag\"}");
+        return;
       }
-      else
+
+      manual = output["manual"].as<bool>();
+      if (manual)
       {
-        // Ha nem float típusú, akkor hibát vagy más értéket kezeljünk
-        errorMsg += "Wrong float value:" + kv.value().as<String>() + ", ";
+        if (!output.containsKey("value") ||
+            (!output["value"].is<int>() && !output["value"].is<float>() &&
+             !output["value"].is<double>()))
+        {
+          server.send(400, "application/json", "{\"error\":\"Manual IO needs a numeric value\"}");
+          return;
+        }
+        dutyValue = output["value"].as<float>();
       }
     }
+    else if (kv.value().is<int>() || kv.value().is<float>() ||
+             kv.value().is<double>())
+    {
+      // Kompatibilitás a korábbi {"3": 50} formátummal.
+      dutyValue = kv.value().as<float>();
+    }
+    else
+    {
+      server.send(400, "application/json", "{\"error\":\"IO value must be numeric\"}");
+      return;
+    }
 
-    // Visszajelzés, hogy sikerült beállítani a hőmérsékletet
-    String response = errorMsg == "" ? "{\"status\":\"success\"}" : "{\"status\":\"" + errorMsg + "\"}";
-    server.send(errorMsg == "" ? 200 : 400, "application/json", response);
+    if (outputCount >= 8 ||
+        (manual && (!std::isfinite(dutyValue) || dutyValue < 0.0f ||
+                    dutyValue > 100.0f)))
+    {
+      server.send(400, "application/json", "{\"error\":\"PWM value must be between 0 and 100\"}");
+      return;
+    }
+
+    outputs[outputCount++] = {
+        static_cast<int>(io),
+        manual,
+        static_cast<int>(std::lround(dutyValue))};
   }
-  else
+
+  for (size_t i = 0; i < outputCount; ++i)
   {
-    // Ha nincs POST body, akkor hibát küldünk
-    server.send(400, "application/json", "{\"error\":\"No data provided\"}");
+    if (outputs[i].manual)
+    {
+      setManualPwmIO(outputs[i].io, outputs[i].duty);
+    }
+    else
+    {
+      clearManualIO(outputs[i].io);
+    }
   }
+
+  server.send(200, "application/json", "{\"status\":\"success\"}");
 }
 
 void handleDeviceInfo()
 {
+  if (!allowApiRequest())
+  {
+    return;
+  }
+
   FSInfo fs;
   SPIFFS.info(fs);
 
@@ -265,6 +369,11 @@ void handleDeviceInfo()
 
 void hadleStateRequest()
 {
+  if (!allowApiRequest())
+  {
+    return;
+  }
+
   // Ideiglenes diagnosztikai mód: a state választ ugyanúgy építjük fel,
   // mint a deviceInfo választ, String összefűzésekkel.
   String json = "{";
