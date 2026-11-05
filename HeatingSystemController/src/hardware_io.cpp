@@ -6,7 +6,9 @@ namespace
 {
 void applyPwmIO(int id, int duty)
 {
+#ifndef TESTINGOVER_API
   pwmController.setChannelDutyCycle(id, duty * 4096 / 100);
+#endif
   IOMap[id] = duty;
   isDataNew = true;
 }
@@ -32,12 +34,16 @@ void writeIO(int id, int value)
 
   if (value > 0)
   {
+#ifndef TESTINGOVER_API
     pwmController.setChannelDutyCycle(id, 4096);
+#endif
     IOMap[id] = 100;
   }
   else
   {
+#ifndef TESTINGOVER_API
     pwmController.setChannelDutyCycle(id, 0);
+#endif
     IOMap[id] = 0;
   }
   isDataNew = true;

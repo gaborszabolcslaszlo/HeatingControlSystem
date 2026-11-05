@@ -72,6 +72,20 @@ String getLogFileName()
 
 void enforceMaxLogFiles()
 {
+#ifdef ESP32
+    File root = SPIFFS.open("/");
+    std::vector<String> logFiles;
+    File entry = root.openNextFile();
+    while (entry)
+    {
+        String fileName = entry.name();
+        if (fileName.startsWith("/log_"))
+        {
+            logFiles.push_back(fileName);
+        }
+        entry = root.openNextFile();
+    }
+#else
     Dir dir = SPIFFS.openDir("/"); // ESP8266: könyvtár listázása
     std::vector<String> logFiles;
 
@@ -83,6 +97,7 @@ void enforceMaxLogFiles()
             logFiles.push_back(dir.fileName());
         }
     }
+#endif
 
     // Ha több fájl van, mint a max, töröljük a legrégebbit
     while (logFiles.size() >= maxLogFiles)
@@ -134,10 +149,22 @@ void handleLogs()
     }
 
     // Ha nincs name paraméter → listázzuk a /log mappát
-    Dir dir = SPIFFS.openDir("/");
     String json = "[";
     bool first = true;
 
+#ifdef ESP32
+    File root = SPIFFS.open("/");
+    File entry = root.openNextFile();
+    while (entry)
+    {
+        if (!first)
+            json += ",";
+        first = false;
+        json += "\"" + String(entry.name()) + "\"";
+        entry = root.openNextFile();
+    }
+#else
+    Dir dir = SPIFFS.openDir("/");
     while (dir.next())
     {
         if (!first)
@@ -146,6 +173,7 @@ void handleLogs()
 
         json += "\"" + dir.fileName() + "\"";
     }
+#endif
 
     json += "]";
 

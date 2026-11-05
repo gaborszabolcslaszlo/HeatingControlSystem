@@ -18,7 +18,7 @@ def gzip_folder(folder, pattern):
 
 
 # forrás könyvtár (másik projekt mockdata mappája)
-source_dir = "/home/laca/Documents/AlfaOmega/Projektek/KazanVezerlo/Websajat/HeatingSystemWebApp/dist/heating-system-web-app/browser"
+source_dir = "/home/laca/Documents/AlfaOmega/Projektek/KazanVezerlo/Websajat/HeatingSystemWebApp/dist"
 # cél könyvtár (aktuális projekt data/mockdata)
 target_dir = "data"
 
@@ -36,6 +36,15 @@ if os.path.exists(source_dir):
     print(f"✅ Web interface copied from {source_dir} to {target_dir}")
 else:
     print(f"⚠️ Source directory not found: {source_dir}")
+
+# SPIFFS-en a teljes relatív útvonal hossza korlátozott. Az Angular build
+# ugyanazt a JSONEditor ikont két helyre is kiteheti; a hosszú hash-elt
+# media-fájlt eltávolítjuk, mert az img/ változat már elegendő és hivatkozott.
+for duplicate_icon in Path(target_dir).glob("media/jsoneditor-icons-*.svg"):
+    replacement = Path(target_dir) / "img" / "jsoneditor-icons.svg"
+    if replacement.exists():
+        duplicate_icon.unlink()
+        print(f"Removed duplicate SPIFFS-incompatible asset: {duplicate_icon}")
 
 # JS fájlok
 gzip_folder('data', '*.js')
@@ -65,7 +74,7 @@ for root, dirs, files in os.walk(BUILD_DIR):
 
 # Generáljuk a függvényt
 function_code = """\
-#include <ESP8266WebServer.h>
+#include "platform_compat.h"
 
 extern void handleWebUserInterfaceRequest();
 

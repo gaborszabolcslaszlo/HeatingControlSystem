@@ -12,14 +12,21 @@
 #include "HeatingSystemElements/HeatingElement.h"
 #include "HeatingSystemElements/Sensor.h"
 #include "comon.h"
+#ifdef ESP32
+#include <esp_heap_caps.h>
+#include <esp_system.h>
+#endif
 
 bool allowApiRequest()
 {
+#if API_MIN_REQUEST_INTERVAL_MS <= 0
+  return true;
+#else
   static unsigned long lastRequestAt = 0;
   static bool hasPreviousRequest = false;
   const unsigned long now = millis();
 
-  if (hasPreviousRequest && now - lastRequestAt < API_MIN_REQUEST_INTERVAL_MS)
+  if (hasPreviousRequest && now - lastRequestAt < API_MIN_REQUEST_INTERVAL_MS_VALUE)
   {
     server.sendHeader("Retry-After", "1");
     server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
@@ -29,6 +36,7 @@ bool allowApiRequest()
   lastRequestAt = now;
   hasPreviousRequest = true;
   return true;
+#endif
 }
 
 void handleHeatingRequest()
@@ -300,8 +308,15 @@ void handleDeviceInfo()
     return;
   }
 
+#ifdef ESP32
+  const size_t filesystemTotalBytes = SPIFFS.totalBytes();
+  const size_t filesystemUsedBytes = SPIFFS.usedBytes();
+#else
   FSInfo fs;
   SPIFFS.info(fs);
+  const size_t filesystemTotalBytes = fs.totalBytes;
+  const size_t filesystemUsedBytes = fs.usedBytes;
+#endif
 
   String json = "{";
 
@@ -317,49 +332,86 @@ void handleDeviceInfo()
   json += "\"subnet\":\"" + WiFi.subnetMask().toString() + "\",";
   json += "\"dns\":\"" + WiFi.dnsIP().toString() + "\",";
   json += "\"mac\":\"" + WiFi.macAddress() + "\",";
+#ifdef ESP32
+  json += "\"hostname\":\"" + String(WiFi.getHostname() ? WiFi.getHostname() : "") + "\"";
+#else
   json += "\"hostname\":\"" + WiFi.hostname() + "\"";
+#endif
   json += "},";
 
   // Chip info
   json += "\"chip\":{";
+#ifdef ESP32
+  char chipId[17];
+  snprintf(chipId, sizeof(chipId), "%llX", ESP.getEfuseMac());
+  json += "\"chipId\":\"" + String(chipId) + "\",";
+#else
   json += "\"chipId\":" + String(ESP.getChipId()) + ",";
+#endif
   json += "\"cpuFreqMHz\":" + String(ESP.getCpuFreqMHz()) + ",";
+#ifdef ESP32
+  json += "\"sdkVersion\":\"" + String(ESP.getSdkVersion()) + "\",";
+  json += "\"coreVersion\":\"ESP32 Arduino\"";
+#else
   json += "\"sdkVersion\":\"" + String(ESP.getSdkVersion()) + "\",";
   json += "\"coreVersion\":\"" + String(ESP.getCoreVersion()) + "\"";
+#endif
   json += "},";
 
   // Flash info
   json += "\"flash\":{";
+#ifdef ESP32
+  json += "\"chipSize\":" + String(ESP.getFlashChipSize()) + ",";
+  json += "\"realChipSize\":" + String(ESP.getFlashChipSize()) + ",";
+  json += "\"chipSpeed\":" + String(ESP.getFlashChipSpeed()) + ",";
+  json += "\"chipMode\":0,";
+#else
   json += "\"chipSize\":" + String(ESP.getFlashChipSize()) + ",";
   json += "\"realChipSize\":" + String(ESP.getFlashChipRealSize()) + ",";
   json += "\"chipSpeed\":" + String(ESP.getFlashChipSpeed()) + ",";
   json += "\"chipMode\":" + String(ESP.getFlashChipMode()) + ",";
+#endif
   json += "\"sketchSize\":" + String(ESP.getSketchSize()) + ",";
   json += "\"freeSketchSpace\":" + String(ESP.getFreeSketchSpace());
   json += "},";
 
   // SPIFFS info
   json += "\"spiffs\":{";
-  json += "\"total\":" + String(fs.totalBytes) + ",";
-  json += "\"used\":" + String(fs.usedBytes) + ",";
-  json += "\"free\":" + String(fs.totalBytes - fs.usedBytes) + ",";
-  json += "\"blockSize\":" + String(fs.blockSize) + ",";
+  json += "\"total\":" + String(filesystemTotalBytes) + ",";
+  json += "\"used\":" + String(filesystemUsedBytes) + ",";
+  json += "\"free\":" + String(filesystemTotalBytes - filesystemUsedBytes);
+#ifdef ESP32
+  json += ",\"blockSize\":0,\"pageSize\":0,\"maxOpenFiles\":0,\"maxPathLength\":0";
+#else
+  json += ",\"blockSize\":" + String(fs.blockSize) + ",";
   json += "\"pageSize\":" + String(fs.pageSize) + ",";
   json += "\"maxOpenFiles\":" + String(fs.maxOpenFiles) + ",";
   json += "\"maxPathLength\":" + String(fs.maxPathLength);
+#endif
   json += "},";
 
   // RAM / heap
   json += "\"heap\":{";
+#ifdef ESP32
+  json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"maxFreeBlock\":" + String(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)) + ",";
+  json += "\"fragmentation\":0";
+#else
   json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"maxFreeBlock\":" + String(ESP.getMaxFreeBlockSize()) + ",";
   json += "\"fragmentation\":" + String(ESP.getHeapFragmentation());
+#endif
   json += "},";
 
   // Reset info
   json += "\"reset\":{";
+#ifdef ESP32
+  json += "\"reason\":\"ESP32 reset\",";
+  json += "\"info\":\"" + String(esp_reset_reason()) + "\"";
+#else
   json += "\"reason\":\"" + String(ESP.getResetReason()) + "\",";
   json += "\"info\":\"" + String(ESP.getResetInfo()) + "\"";
+#endif
   json += "}";
 
   json += "}";

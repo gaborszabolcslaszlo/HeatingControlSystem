@@ -24,9 +24,9 @@ enum LogLevel
 #endif
 
 #ifndef UNIT_TESTING
+#include "platform_compat.h"
 #include <WiFiUdp.h>
 #include <NTPClient.h>
-#include <ESP8266WebServer.h>
 
 extern ESP8266WebServer server;
 

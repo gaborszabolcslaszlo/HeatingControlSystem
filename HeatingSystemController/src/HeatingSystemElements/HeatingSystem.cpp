@@ -1,5 +1,11 @@
 
 #include "HeatingSystem.h"
+#ifndef UNIT_TESTING
+#include <FS.h>
+#ifdef ESP32
+#include <SPIFFS.h>
+#endif
+#endif
 
 namespace
 {
@@ -314,7 +320,7 @@ void HeatingSystem::HeatingFromPuffer_Handler(HeatingElement *elem, bool NeedHea
 void HeatingSystem::intiHeatingSystem(const std::string &filename)
 {
     logDebug("----- int Heating System -----\n");
-    DynamicJsonDocument doc(8192);
+    JsonDocument doc;
 
 #ifndef UNIT_TESTING
     File configFile = SPIFFS.open(filename.c_str(), "r");

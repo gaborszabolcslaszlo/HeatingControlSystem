@@ -26,10 +26,21 @@ python -m pytest -m integration -v
 
 ### API-kérés korlátozás kezelése
 
-A firmware a túl gyors dinamikus API-kérésekre `429 Too Many Requests` választ
-adhat. A tesztek ezt automatikusan kezelik: legfeljebb két alkalommal újrapróbálják
-a kérést, és követik az eszköz `Retry-After` fejlécét. Ha a harmadik próbálkozás
-is `429`, a teszt a hibás választ rögzíti a riportban és hibával leáll.
+A firmware API-kérés-limitje a `API_MIN_REQUEST_INTERVAL_MS` build flaggel
+állítható. Alapértelmezésben `0`, vagyis ki van kapcsolva; például a
+`-DAPI_MIN_REQUEST_INTERVAL_MS=250` 250 ms-os limitet kapcsol be.
+
+A tesztek ettől függetlenül kezelik a korábbi firmware-verziók `429 Too Many
+Requests` válaszát: legfeljebb két alkalommal újrapróbálják a kérést, és követik
+az eszköz `Retry-After` fejlécét.
+
+Az állapotellenőrzések előtt a tesztek alapértelmezésben 3 másodpercet várnak a
+vezérlő állapotának beállására. Ez a `STATE_SETTLE_SECONDS` környezeti változóval
+felülírható.
+
+Ha az első `/state` válaszban még nem látható az elvárt állapot, az
+állapotátmeneti tesztek legfeljebb 12 másodpercig újra lekérdezik az API-t, a
+lekérések között a fenti 3 másodperces időközzel.
 
 Verbose módok:
 

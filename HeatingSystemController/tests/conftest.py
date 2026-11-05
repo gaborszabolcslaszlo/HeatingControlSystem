@@ -14,7 +14,8 @@ import requests
 _CURRENT_TEST: str | None = None
 _TEST_CASES: dict[str, dict] = {}
 _TEST_RESULTS: dict[str, str] = {}
-STATE_SETTLE_SECONDS = 5.0
+_TEST_FAILURES: dict[str, str] = {}
+STATE_SETTLE_SECONDS = float(os.getenv("STATE_SETTLE_SECONDS", "3"))
 API_REQUEST_RETRIES = 2
 
 
@@ -24,6 +25,12 @@ class TraceSession(requests.Session):
         self.trace: list[dict] = []
         self.assertions: list[dict] = []
         self.wait_before_next_state = 0.0
+        self._last_api_request_started: float | None = None
+        self._next_request_is_state_retry = False
+
+    def mark_state_retry(self) -> None:
+        """Mark the next /state request as a retry after a failed check."""
+        self._next_request_is_state_retry = True
 
     def record_assertion(
         self,
@@ -62,11 +69,21 @@ class TraceSession(requests.Session):
 
     def request(self, method, url, **kwargs):
         started = time.perf_counter()
+        elapsed_since_previous_request = (
+            None
+            if self._last_api_request_started is None
+            else round((started - self._last_api_request_started) * 1000, 2)
+        )
+        self._last_api_request_started = started
+        state_retry = self._next_request_is_state_retry
+        self._next_request_is_state_retry = False
         request_data = {
             "method": method,
             "url": url,
             "headers": dict(kwargs.get("headers") or {}),
             "body": self._body(kwargs.get("data", kwargs.get("json"))),
+            "elapsedSincePreviousApiRequestMs": elapsed_since_previous_request,
+            "stateRetry": state_retry,
         }
 
         for attempt in range(API_REQUEST_RETRIES + 1):
@@ -126,7 +143,9 @@ class TraceSession(requests.Session):
                 "durationMs": round((time.perf_counter() - started) * 1000, 2),
             }
         )
-        if url.rstrip("/").endswith(("/setTemp", "/heatingRequest")):
+        if url.rstrip("/").endswith(
+            ("/setTemp", "/heatingRequest", "/manualControlPumps")
+        ):
             self.wait_before_next_state = STATE_SETTLE_SECONDS
         return response
 
@@ -165,6 +184,10 @@ def pytest_runtest_teardown(item, nextitem) -> None:
 def pytest_runtest_logreport(report) -> None:
     if report.when == "call":
         _TEST_RESULTS[report.nodeid] = report.outcome
+        if report.failed:
+            _TEST_FAILURES[report.nodeid] = str(report.longrepr)
+        else:
+            _TEST_FAILURES.pop(report.nodeid, None)
 
 
 def _write_trace(session: TraceSession, path_value: str) -> None:
@@ -216,6 +239,16 @@ def _write_readable_report(session: TraceSession, path_value: str) -> None:
             f"**Leírás:** {description}",
             "",
         ])
+        failure = _TEST_FAILURES.get(test_case)
+        if failure:
+            lines.extend([
+                "### Hiba részletei",
+                "",
+                "```text",
+                failure,
+                "```",
+                "",
+            ])
 
         for step_number, entry in enumerate(entries, start=1):
             trace_index = next(
@@ -239,6 +272,10 @@ def _write_readable_report(session: TraceSession, path_value: str) -> None:
                 "",
                 f"**Időpont:** {entry['timestamp']}  ",
                 f"**Válaszidő:** {entry['durationMs']} ms",
+                f"**Eltelt idő az előző API-kérés óta:** "
+                f"{request_data.get('elapsedSincePreviousApiRequestMs')} ms",
+                f"**State újrapróbálás:** "
+                f"{'igen' if request_data.get('stateRetry') else 'nem'}",
                 "",
                 "#### Küldött kérés",
                 "",
@@ -550,6 +587,10 @@ def _write_html_report(session: TraceSession, path_value: str) -> None:
                 f"<span class=\"duration\">{entry['durationMs']} ms</span>"
                 f"</summary><div class=\"step-content\">"
                 f"<p><b>Időpont:</b> {html.escape(entry['timestamp'])}</p>"
+                f"<p><b>Eltelt idő az előző API-kérés óta:</b> "
+                f"{request_data.get('elapsedSincePreviousApiRequestMs')} ms; "
+                f"<b>State újrapróbálás:</b> "
+                f"{'igen' if request_data.get('stateRetry') else 'nem'}</p>"
                 f"{_html_code_block('Kérés fejlécei', request_headers)}"
                 f"{_html_code_block('Kérés törzse', request_data['body'])}"
                 f"{response_html}</div></details>"
@@ -580,6 +621,16 @@ def _write_html_report(session: TraceSession, path_value: str) -> None:
                     "</div>"
                 )
 
+        failure_html = ""
+        failure = _TEST_FAILURES.get(test_case)
+        if failure:
+            failure_html = (
+                "<details class=\"failure-details\" open>"
+                "<summary><strong>Hiba részletei</strong></summary>"
+                f"<pre><code>{html.escape(failure)}</code></pre>"
+                "</details>"
+            )
+
         case_class = {
             "passed": "passed-case",
             "failed": "failed-case",
@@ -594,8 +645,8 @@ def _write_html_report(session: TraceSession, path_value: str) -> None:
                 f"<details class=\"test-case {case_class}\"><summary>"
             f"<span class=\"status {result_class}\">{html.escape(result.upper())}</span> "
             f"<strong>{html.escape(test_case)}</strong></summary>"
-            f"<div class=\"case-content\"><p>{html.escape(description)}</p>"
-                f"{''.join(steps)}{assertion_html}</div></details>"
+                f"<div class=\"case-content\"><p>{html.escape(description)}</p>"
+                f"{failure_html}{''.join(steps)}{assertion_html}</div></details>"
             ),
         })
 
@@ -770,7 +821,9 @@ def set_sensor_values(api_session: requests.Session, api_base_url: str):
 
 @pytest.fixture
 def read_state(api_session: requests.Session, api_base_url: str):
-    def _read_state() -> dict:
+    def _read_state(retry: bool = False) -> dict:
+        if retry and hasattr(api_session, "mark_state_retry"):
+            api_session.mark_state_retry()
         wait_seconds = getattr(api_session, "wait_before_next_state", 0.0)
         if wait_seconds > 0:
             time.sleep(wait_seconds)

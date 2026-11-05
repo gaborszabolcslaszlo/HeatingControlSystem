@@ -1,0 +1,9 @@
+# Custom 4 MB layout for the ESP32 web interface.
+# The larger SPIFFS partition leaves room for the compressed web assets,
+# configuration files, and runtime log files.
+# Name,   Type, SubType, Offset,  Size,    Flags
+nvs,      data, nvs,     0x9000,  0x5000,
+phy_init, data, phy,     0xE000,  0x1000,
+factory,  app,  factory, 0x10000, 0x1B0000,
+spiffs,   data, spiffs,  0x1C0000,0x230000,
+coredump, data, coredump,0x3F0000,0x10000,

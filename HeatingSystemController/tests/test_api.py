@@ -73,9 +73,18 @@ def _puffer_discharge_pid_values() -> dict[str, float]:
 
 
 def _assert_puffer_pump_role(
-    state: dict, active_channel: str, inactive_channel: str
+    state: dict,
+    active_channel: str,
+    inactive_channel: str,
+    read_state=None,
 ) -> float:
     """Ellenőrzi, hogy csak a puffer állapotához tartozó pumpa aktív."""
+
+    if read_state is not None and not _puffer_pump_role_is_valid(
+        state, active_channel, inactive_channel
+    ):
+        state = _read_state_after_failed_check(read_state)
+
     active_output = state[active_channel]
     inactive_output = state[inactive_channel]
 
@@ -84,6 +93,32 @@ def _assert_puffer_pump_role(
     assert 0 <= active_output <= 100
     assert inactive_output == pytest.approx(0, abs=1.0)
     return float(active_output)
+
+
+def _puffer_pump_role_is_valid(
+    state: dict, active_channel: str, inactive_channel: str
+) -> bool:
+    active_output = state.get(active_channel)
+    inactive_output = state.get(inactive_channel)
+    return (
+        isinstance(active_output, (int, float))
+        and isinstance(inactive_output, (int, float))
+        and 0 <= active_output <= 100
+        and inactive_output == pytest.approx(0, abs=1.0)
+    )
+
+
+def _read_state_after_failed_check(read_state) -> dict:
+    """Wait once, then request /state again after an unexpected result."""
+    time.sleep(float(os.getenv("STATE_SETTLE_SECONDS", "3")))
+    return read_state(retry=True)
+
+
+def _read_state_with_expected_value(read_state, element: str, expected: str) -> dict:
+    state = read_state()
+    if state.get(element, {}).get("state") != expected:
+        state = _read_state_after_failed_check(read_state)
+    return state
 
 
 def _api_stress_iterations() -> int:
@@ -202,7 +237,7 @@ def test_puffer_pid_output_follows_temperature_error(
     low_error_state = read_state()
     assert low_error_state["Puffer950l"]["state"] == "CHARGE"
     low_error_output = _assert_puffer_pump_role(
-        low_error_state, active_channel="4", inactive_channel="3"
+        low_error_state, active_channel="4", inactive_channel="3", read_state=read_state
     )
 
     # 0 °C retour -> pozitív hiba a 60 °C setpointtal szemben. A CHARGE alatt
@@ -211,7 +246,10 @@ def test_puffer_pid_output_follows_temperature_error(
     positive_error_state = read_state()
     assert positive_error_state["Puffer950l"]["state"] == "CHARGE"
     positive_error_output = _assert_puffer_pump_role(
-        positive_error_state, active_channel="4", inactive_channel="3"
+        positive_error_state,
+        active_channel="4",
+        inactive_channel="3",
+        read_state=read_state,
     )
     assert positive_error_output > low_error_output
 
@@ -221,7 +259,7 @@ def test_puffer_pid_output_follows_temperature_error(
     zero_error_state = read_state()
     assert zero_error_state["Puffer950l"]["state"] == "CHARGE"
     zero_error_output = _assert_puffer_pump_role(
-        zero_error_state, active_channel="4", inactive_channel="3"
+        zero_error_state, active_channel="4", inactive_channel="3", read_state=read_state
     )
     assert zero_error_output == pytest.approx(positive_error_output, abs=1.0)
 
@@ -231,7 +269,10 @@ def test_puffer_pid_output_follows_temperature_error(
     negative_error_state = read_state()
     assert negative_error_state["Puffer950l"]["state"] == "CHARGE"
     negative_error_output = _assert_puffer_pump_role(
-        negative_error_state, active_channel="4", inactive_channel="3"
+        negative_error_state,
+        active_channel="4",
+        inactive_channel="3",
+        read_state=read_state,
     )
     assert negative_error_output < zero_error_output
 
@@ -254,7 +295,9 @@ def test_puffer_discharge_uses_only_discharge_pid_pump(
     assert state["Puffer950l"]["state"] == "DISCHARGE"
     assert "3" in state
     assert "4" in state
-    _assert_puffer_pump_role(state, active_channel="3", inactive_channel="4")
+    _assert_puffer_pump_role(
+        state, active_channel="3", inactive_channel="4", read_state=read_state
+    )
 
 
 @pytest.mark.integration
@@ -395,8 +438,7 @@ def test_manual_control_pumps_override_each_io_independently(
         response.raise_for_status()
 
         set_sensor_values(_puffer_discharge_pid_values())
-        state = read_state()
-        assert state["Puffer950l"]["state"] == "DISCHARGE"
+        state = _read_state_with_expected_value(read_state, "Puffer950l", "DISCHARGE")
         assert state["3"] == pytest.approx(37, abs=1)
 
         # A manuális mód kikapcsolása után a vezérlőnek át kell vennie az IO3-at.
@@ -405,7 +447,6 @@ def test_manual_control_pumps_override_each_io_independently(
             json={"3": {"manual": False}},
             timeout=(2, 15),
         ).raise_for_status()
-        time.sleep(1)
         state = read_state()
         assert state["3"] != pytest.approx(37, abs=1)
 
@@ -422,8 +463,7 @@ def test_manual_control_pumps_override_each_io_independently(
         ).raise_for_status()
 
         set_sensor_values(_puffer_pid_values(kazan_retour=50.0))
-        state = read_state()
-        assert state["Puffer950l"]["state"] == "CHARGE"
+        state = _read_state_with_expected_value(read_state, "Puffer950l", "CHARGE")
         assert state["4"] == pytest.approx(37, abs=1)
 
         api_session.post(
@@ -431,7 +471,6 @@ def test_manual_control_pumps_override_each_io_independently(
             json={"4": {"manual": False}},
             timeout=(2, 15),
         ).raise_for_status()
-        time.sleep(1)
         state = read_state()
         assert state["4"] != pytest.approx(37, abs=1)
     finally:

@@ -1,5 +1,5 @@
 #pragma once
-#include <ESP8266WebServer.h>
+#include "platform_compat.h"
 
 extern void handleWebUserInterfaceRequest();
 

@@ -5,7 +5,7 @@
 
 #include <FS.h>
 #include <ArduinoJson.h>
-#include <ESP8266WebServer.h>
+#include "platform_compat.h"
 #include <map>
 #include <string>
 #include "comon.h"

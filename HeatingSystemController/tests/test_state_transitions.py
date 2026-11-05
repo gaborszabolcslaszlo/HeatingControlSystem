@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import time
+
 import pytest
 
 
@@ -16,6 +19,7 @@ PUFFER_BODY_TOP = "286AD6940000000003F"
 PUFFER_BODY_MIDDLE = "286E00683000000000003"
 PUFFER_BODY_BOTTOM = "287EDB9400000000054"
 PUFFER_RETOUR = "28899B43D44400637"
+STATE_CHECK_INTERVAL_SECONDS = float(os.getenv("STATE_SETTLE_SECONDS", "3"))
 
 
 def _puffer_body_values(value: float) -> dict[str, float]:
@@ -58,10 +62,17 @@ def _request_radiator_heat(api_session, api_base_url: str, enabled: bool) -> Non
 
 
 def _wait_for_state(read_state, element: str, expected: str, timeout: float = 12) -> dict:
-    """Wait for the device settle delay, then make exactly one state request."""
-    del timeout
-    last_state = read_state()
-    actual = last_state.get(element, {}).get("state", "nincs adat")
+    """Wait for the expected state, polling the state API at fixed intervals."""
+    deadline = time.monotonic() + timeout
+    last_state = {}
+    actual = "nincs adat"
+    while True:
+        last_state = read_state(retry=bool(last_state))
+        actual = last_state.get(element, {}).get("state", "nincs adat")
+        if actual == expected or time.monotonic() >= deadline:
+            break
+        time.sleep(min(STATE_CHECK_INTERVAL_SECONDS, max(0, deadline - time.monotonic())))
+
     session = getattr(read_state, "_trace_session", None)
     if session is not None:
         session.record_assertion(
@@ -77,18 +88,28 @@ def _wait_for_state(read_state, element: str, expected: str, timeout: float = 12
     return last_state
 
 
-def _wait_for_states(read_state, expected_states: dict[str, str]) -> dict:
-    """Check multiple element states from one shared /state response."""
-    state = read_state()
-    checks = [
-        {
-            "element": element,
-            "expected": expected,
-            "actual": state.get(element, {}).get("state", "nincs adat"),
-            "passed": state.get(element, {}).get("state") == expected,
-        }
-        for element, expected in expected_states.items()
-    ]
+def _wait_for_states(
+    read_state, expected_states: dict[str, str], timeout: float = 12
+) -> dict:
+    """Wait for all expected states using one shared response per poll."""
+    deadline = time.monotonic() + timeout
+    state = {}
+    checks = []
+    while True:
+        state = read_state(retry=bool(state))
+        checks = [
+            {
+                "element": element,
+                "expected": expected,
+                "actual": state.get(element, {}).get("state", "nincs adat"),
+                "passed": state.get(element, {}).get("state") == expected,
+            }
+            for element, expected in expected_states.items()
+        ]
+        if all(check["passed"] for check in checks) or time.monotonic() >= deadline:
+            break
+        time.sleep(min(STATE_CHECK_INTERVAL_SECONDS, max(0, deadline - time.monotonic())))
+
     passed = all(check["passed"] for check in checks)
     session = getattr(read_state, "_trace_session", None)
     if session is not None:

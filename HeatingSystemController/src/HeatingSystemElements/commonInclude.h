@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <FS.h> // SPIFFS for file handling on ESP8266
+#include <FS.h> // SPIFFS for file handling
 #include <string>
 #include <map>
 
