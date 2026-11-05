@@ -1,0 +1,259 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\definecolor{codegray}{gray}{0.95}
+\lstset{basicstyle=\ttfamily\small,backgroundcolor=\color{codegray},frame=single,breaklines=true,columns=fullflexible}
+
+\title{HeatingSystemController\\Felhasználói útmutató}
+\author{AlfaOmega projekt}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Rövid áttekintés}
+
+A HeatingSystemController egy WiFi-n keresztül elérhető fűtésvezérlő rendszer. Kezeli a kazánt, a puffert, a radiátoros/fűtési köröket, a DS18B20 hőmérséklet-szenzorokat és a PWM/ON/OFF kimeneteket.
+
+A rendszer webes felületről, Postmanből vagy más HTTP kliensből vezérelhető.
+
+A firmware a soros kimenet mellett szöveges alkalmazáslogot is ment. A logfájlok összesített mérete legfeljebb 10 KB lehet; amikor az új bejegyzés már nem férne el, a legrégebbi logfájlok automatikusan törlődnek.
+
+A fájlírás nem minden logüzenetnél történik. A rendszer először memóriapufferben gyűjti a bejegyzéseket, majd a puffer megtelésekor vagy néhány másodpercenként egyben írja őket a fájlba. Emiatt egy friss logbejegyzés rövid ideig csak a soros kimeneten látható, amíg a puffer ki nem ürül.
+
+\section{Elérés}
+
+A vezérlő IP-címét a hálózati beállítások vagy a soros bootnapló alapján lehet megtudni. Az API alapértelmezett portja 80.
+
+Példa:
+
+\begin{lstlisting}
+http://192.168.0.107
+\end{lstlisting}
+
+Ha a vezérlő hostname-je elérhető a helyi hálózaton, az IP-cím helyett használható a hostname is.
+
+\section{Aktuális állapot lekérése}
+
+Postman beállítása:
+
+\begin{itemize}
+  \item Method: \texttt{GET}
+  \item URL: \texttt{http://ESZKOZ-IP/state}
+  \item Body: nincs
+  \item Header: \texttt{Accept: application/json}
+\end{itemize}
+
+A válaszban megtalálhatók a kimenetek, szenzorértékek és modulállapotok.
+
+\begin{lstlisting}[language=json]
+{
+  "1": 0,
+  "3": 50,
+  "28000B96A00000000029": 55.4,
+  "Puffer950l": {
+    "state": "CHARGE",
+    "HT": "12.3"
+  }
+}
+\end{lstlisting}
+
+\section{Teszt hőmérsékletek beállítása}
+
+Ez a végpont a tesztkörnyezetben használható szenzorértékek beállítására.
+
+\begin{lstlisting}
+POST http://ESZKOZ-IP/setTemp
+Content-Type: application/json
+\end{lstlisting}
+
+Példa Body:
+
+\begin{lstlisting}[language=json]
+{
+  "28000B96A00000000029": 55.0,
+  "2814576B00000000059": 48.0,
+  "2881506B00000000052": 60.0
+}
+\end{lstlisting}
+
+Sikeres válasz:
+
+\begin{lstlisting}[language=json]
+{"status":"success"}
+\end{lstlisting}
+
+\section{Fűtési igény beállítása}
+
+\begin{lstlisting}
+GET http://ESZKOZ-IP/heatingRequest?name=PadloKozos&setTemp=true
+\end{lstlisting}
+
+A fűtési igény kikapcsolása:
+
+\begin{lstlisting}
+GET http://ESZKOZ-IP/heatingRequest?name=PadloKozos&setTemp=false
+\end{lstlisting}
+
+A \texttt{name} értékének szerepelnie kell a konfigurált fűtési elemek között.
+
+\section{Kézi pumpavezérlés}
+
+\begin{lstlisting}
+POST http://ESZKOZ-IP/manualControlPumps
+Content-Type: application/json
+\end{lstlisting}
+
+Példa: a 3-as kimenet 50\%-ra kézi módba állítása, a 4-es kimenet visszaadása automatikus módba:
+
+\begin{lstlisting}[language=json]
+{
+  "3": {"manual": true, "value": 50},
+  "4": {"manual": false}
+}
+\end{lstlisting}
+
+A PWM érték tartománya 0 és 100. Kézi módban az automatikus vezérlés nem módosítja az adott kimenetet.
+
+\section{Állapotnapló használata}
+
+A vezérlő napi bináris fájlokat tárol a belső SPIFFS fájlrendszerben:
+
+\begin{lstlisting}
+/state_YYYY-MM-DD.bin
+\end{lstlisting}
+
+A fájlokat nem kell közvetlenül megnyitni vagy dekódolni. Az API JSON formátumban visszaadja a tartalmat.
+
+\subsection{Elérhető naplófájlok}
+
+\begin{lstlisting}
+GET http://ESZKOZ-IP/state-history/files
+\end{lstlisting}
+
+Példa válasz:
+
+\begin{lstlisting}[language=json]
+{
+  "currentDate": "2026-11-06",
+  "files": [
+    {"name":"state_2026-11-05.bin","size":6213}
+  ]
+}
+\end{lstlisting}
+
+A \texttt{currentDate} az eszköz aktuális, NTP által beállított dátuma. Ha a frontend nem kapott külön dátumválasztást, ezt a dátumot használja alapértelmezettként.
+
+\subsection{Egy nap adatainak lekérése}
+
+\begin{lstlisting}
+GET http://ESZKOZ-IP/state-history?date=2026-11-05
+\end{lstlisting}
+
+A válasz csak a változásokat tartalmazza:
+
+\begin{lstlisting}[language=json]
+[
+  {
+    "timestamp": 1793913984,
+    "changes": {
+      "io/1": 0,
+      "sensor/2814576B00000000059": 48.5,
+      "state/Puffer950l/state": "CHARGE"
+    }
+  }
+]
+\end{lstlisting}
+
+Fontos, hogy a későbbi rekordok nem tartalmazzák a teljes állapotot. A frontendnek az első rekordból kell létrehoznia az állapotot, majd minden további rekord \texttt{changes} mezőjét rá kell másolnia az előző állapotra.
+
+\subsection{Naplófájl törlése}
+
+\begin{lstlisting}
+DELETE http://ESZKOZ-IP/state-history?date=2026-11-05
+\end{lstlisting}
+
+Sikeres válasz:
+
+\begin{lstlisting}[language=json]
+{"status":"deleted"}
+\end{lstlisting}
+
+A törlés előtt mindig ellenőrizd a dátumot, mert a művelet nem visszavonható.
+
+\section{Eszközinformáció és szabad tárhely}
+
+\begin{lstlisting}
+GET http://ESZKOZ-IP/deviceInfo
+\end{lstlisting}
+
+A válasz \texttt{spiffs} része megmutatja a teljes, használt és szabad fájlrendszer-kapacitást:
+
+\begin{lstlisting}[language=json]
+"spiffs": {
+  "total": 1048576,
+  "used": 245760,
+  "free": 802816
+}
+\end{lstlisting}
+
+\section{Konfiguráció lekérése}
+
+\begin{lstlisting}
+GET http://ESZKOZ-IP/configuration
+\end{lstlisting}
+
+Ez visszaadja a jelenlegi \texttt{config.json} tartalmát. A konfigurációban lehet megadni a WiFi-t, a kazánt, a puffert, a radiátorköröket, a szenzorokat, a pumpákat és a PID paramétereket.
+
+\section{Konfiguráció feltöltése}
+
+A konfiguráció feltöltése a következő végponton történik:
+
+\begin{lstlisting}
+POST http://ESZKOZ-IP/configuration
+Content-Type: multipart/form-data
+\end{lstlisting}
+
+Postmanben a Body alatt a \texttt{form-data} típust válaszd, majd a fájl mezőben töltsd fel a valid konfigurációt \texttt{config.json} néven.
+
+Sikeres feltöltés után a vezérlőt újra kell indítani. A rendszer az új konfigurációt validálja, és hibás konfiguráció esetén a korábbi konfigurációt megtartja.
+
+\section{Biztonsági megjegyzések}
+
+A konfigurációs fájl WiFi-jelszót is tartalmazhat, ezért valódi jelszavakat ne tölts fel forráskódba és ne ossz meg dokumentációban.
+
+A jelenlegi újraindítási végpont fejlesztői hitelesítést használ:
+
+\begin{lstlisting}
+GET /reboot?user=admin&password=password
+\end{lstlisting}
+
+Éles hálózatban ezt a hozzáférést korlátozni vagy módosítani kell.
+
+\section{Gyakori hibák}
+
+\begin{longtable}{p{0.33\textwidth}p{0.55\textwidth}}
+\toprule
+Hiba & Teendő \\
+\midrule
+\texttt{state log not found} & Ellenőrizd a dátumot a \texttt{/state-history/files} végponttal. \\
+Üres \texttt{[]} válasz & Lehet, hogy az adott naphoz még nincs minta, vagy a firmware nem futott elég ideig a logger első mentéséig. \\
+HTTP 429 & Az API limiter aktív; várj a \texttt{Retry-After} fejlécben jelzett időt. \\
+HTTP 400 konfiguráció feltöltéskor & A JSON szerkezete vagy egy szenzor/PID hivatkozása hibás. \\
+Feltöltési kapcsolat megszakad & Ellenőrizd az USB-kábelt, a soros portot, a tápellátást és az ESP8266 FLASH módot. \\
+\bottomrule
+\end{longtable}
+
+\end{document}

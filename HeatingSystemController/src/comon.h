@@ -23,6 +23,14 @@ enum LogLevel
 #define APPLICATION_LOG_LEVEL LOG_LEVEL_WARN
 #endif
 
+#ifndef APPLICATION_LOG_BUFFER_SIZE
+#define APPLICATION_LOG_BUFFER_SIZE 2048U
+#endif
+
+#ifndef APPLICATION_LOG_FLUSH_INTERVAL_MS
+#define APPLICATION_LOG_FLUSH_INTERVAL_MS 5000UL
+#endif
+
 #ifndef UNIT_TESTING
 #include "platform_compat.h"
 #include <WiFiUdp.h>
@@ -38,8 +46,11 @@ extern const char *logFileName;
 
 // Tartalom típus meghatározása fájlnév alapján
 String getContentType(String filename);
+String getFormattedDate();
 
 void createLogFile();
+void writeLogMessage(const char *format, ...);
+void flushLogBuffer(bool force = false);
 
 #if DISABLE_APPLICATION_LOGGING
 #define LOG_WRITE(...) \
@@ -47,17 +58,13 @@ void createLogFile();
     {                  \
     } while (0)
 #else
-#define LOG_WRITE(level, format, ...)               \
-    do                                              \
-    {                                               \
-        if ((level) <= APPLICATION_LOG_LEVEL)       \
-        {                                           \
-            Serial.printf("[%02d:%02d:%02d] ",      \
-                          timeClient.getHours(),    \
-                          timeClient.getMinutes(),  \
-                          timeClient.getSeconds()); \
-            Serial.printf(format, ##__VA_ARGS__);   \
-        }                                           \
+#define LOG_WRITE(level, format, ...)              \
+    do                                             \
+    {                                              \
+        if ((level) <= APPLICATION_LOG_LEVEL)      \
+        {                                          \
+            writeLogMessage(format, ##__VA_ARGS__); \
+        }                                          \
     } while (0)
 #endif
 

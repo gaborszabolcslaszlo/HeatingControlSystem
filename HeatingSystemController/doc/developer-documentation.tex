@@ -1,0 +1,450 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\definecolor{codegray}{gray}{0.95}
+\lstset{basicstyle=\ttfamily\small,backgroundcolor=\color{codegray},frame=single,breaklines=true,columns=fullflexible}
+\pagestyle{fancy}
+\fancyhead[L]{HeatingSystemController}
+\fancyhead[R]{Fejlesztői dokumentáció}
+\fancyfoot[C]{\thepage}
+
+\title{HeatingSystemController\\Fejlesztői dokumentáció}
+\author{AlfaOmega projekt}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Dokumentum célja}
+
+Ez a dokumentum a HeatingSystemController firmware továbbfejlesztéséhez szükséges technikai információkat foglalja össze. Ismerteti a futási architektúrát, a fűtési rendszer modelljét, a HTTP API-kat, a konfigurációs formátumot, a SPIFFS fájlrendszert, a bináris állapotnapló formátumát, a frontend adat-visszaépítését, a build környezeteket és az integrációs teszteket.
+
+A projekt fő forrásfájljai:
+
+\begin{itemize}
+  \item \texttt{src/main.cpp}: inicializálás, fő ciklus, HTTP és WebSocket életciklus.
+  \item \texttt{src/web\_api.cpp}: állapot-, konfigurációs-, hőmérséklet- és vezérlő API-k.
+  \item \texttt{src/config.h}: konfiguráció betöltése, validálása és feltöltése.
+  \item \texttt{src/HeatingSystemElements/}: kazán, puffer, radiátor, szenzor és vezérlő objektumok.
+  \item \texttt{src/state\_data\_logger.cpp}: bináris napi állapotnapló és JSON parser API.
+  \item \texttt{config/config.json}: fejlesztői konfigurációs példa.
+  \item \texttt{data/config.json}: a firmware fájlrendszerébe feltöltendő konfiguráció.
+\end{itemize}
+
+\section{Rendszerarchitektúra}
+
+Az alkalmazás Arduino frameworkre épül, PlatformIO-val fordítható ESP8266 és ESP32 célokra. A firmware a SPIFFS fájlrendszert használja webes fájlok, konfiguráció és runtime naplófájlok tárolására.
+
+\begin{lstlisting}
+                 +----------------------+
+                 |     HTTP clients     |
+                 | Postman / frontend   |
+                 +----------+-----------+
+                            |
+                            v
+                 +----------------------+
+                 | ESP WebServer       |
+                 | main.cpp routes     |
+                 +----+-------------+---+
+                      |             |
+             +--------v--+    +-----v----------------+
+             | web_api   |    | state_data_logger    |
+             | control   |    | binary log + parser  |
+             +-----+-----+    +----------+------------+
+                   |                     |
+                   v                     v
+             +-----------+       +-------------+
+             | Heating   |       | SPIFFS      |
+             | System    |       | config/web  |
+             | state      |       | state_*.bin |
+             +-----+-----+       +-------------+
+                   |
+        +----------+-----------+
+        | sensors / pumps / IO |
+        +----------------------+
+\end{lstlisting}
+
+\subsection{Inicializálási sorrend}
+
+A \texttt{setup()} fő lépései:
+
+\begin{enumerate}
+  \item soros port és hardver inicializálása;
+  \item SPIFFS és \texttt{config.json} betöltése;
+  \item \texttt{HeatingSystem} objektum létrehozása;
+  \item WiFi és NTP kliens inicializálása;
+  \item HTTP route-ok regisztrálása;
+  \item szenzorok és fűtési elemek inicializálása;
+  \item \texttt{StateDataLogger::begin()} meghívása;
+  \item WebSocket és időzítő indítása.
+\end{enumerate}
+
+Az \texttt{loop()} minden ciklusban kezeli a hálózatot, frissíti az NTP időt és a Dallas szenzorokat, feldolgozza a fűtési rendszer jelzéseit, majd meghívja a \texttt{stateDataLogger.capture()} függvényt.
+
+\section{Fűtési rendszer modellje}
+
+A \texttt{HeatingSystem} a konfigurációból létrehozza a fűtési elemeket és a közös \texttt{mergedList} listában tartja őket. A fő elemtípusok:
+
+\begin{itemize}
+  \item \textbf{Kazan}: kazán állapotgép, visszatérő-védelem és túlmelegedés-védelem.
+  \item \textbf{Puffer}: töltés, kisütés, készenlét és telítettségi állapotok.
+  \item \textbf{Radiator}: fogyasztói oldal állapotgépe.
+  \item \textbf{HeatingController}: a teljes rendszer módja és hőigénye.
+\end{itemize}
+
+A szenzorok a \texttt{Sensor::SensorsValue} mapben jelennek meg az egyedi DS18B20 azonosítójukkal. A kimenetek az \texttt{IOMap} mapben vannak, ahol a kulcs az IO szám, az érték tipikusan 0--100 közötti PWM vagy ON/OFF érték.
+
+A modulállapotok a \texttt{HeatingElement::ElementsStateMap} mapben vannak. Gyakori mezők:
+
+\begin{itemize}
+  \item \texttt{state}: állapotnév, például \texttt{CHARGE}, \texttt{DISCHARGE}, \texttt{HEATING};
+  \item \texttt{HT}: hőátadási érték, floatként naplózva;
+  \item \texttt{NH}: hőigény;
+  \item \texttt{iA}: aktív állapot;
+  \item \texttt{iOHPA}, \texttt{iRPA}: kazánvédelmi állapotok.
+\end{itemize}
+
+\section{Konfiguráció}
+
+A konfiguráció JSON fájlban található a SPIFFS gyökerében \texttt{/config.json} néven. A projektben található példa a \texttt{config/config.json} és \texttt{data/config.json} fájlban van.
+
+\subsection{Globális mezők}
+
+\begin{longtable}{p{0.29\textwidth}p{0.62\textwidth}}
+\toprule
+Mező & Jelentés \\
+\midrule
+\texttt{wifiSSID} & STA módú WiFi hálózat neve. \\
+\texttt{wifiPassword} & STA módú WiFi jelszó; publikus dokumentációban ne szerepeljen valódi érték. \\
+\texttt{AP\_SSID} & Access Point mód hálózatneve. \\
+\texttt{AP\_Password} & Access Point jelszava. \\
+\texttt{WifiMode} & \texttt{STA}, \texttt{AP} vagy \texttt{STA+AP}. \\
+\texttt{hostname} & DHCP/mDNS név. \\
+\texttt{comType} & \texttt{API} vagy \texttt{WS}; WebSocket esetén a frontend állapotbroadcastot is kaphat. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Fűtési elemek}
+
+A \texttt{HeatingSystem} objektumai a \texttt{KAZAN}, \texttt{RADIATOR} és \texttt{PUFER} tömbökben vannak. Egy szenzor mezői:
+
+\begin{lstlisting}[language=json]
+{
+  "model": "DS12B20",
+  "position": "body",
+  "id": "2814576B00000000059",
+  "offset": -1.0,
+  "level": 80
+}
+\end{lstlisting}
+
+A \texttt{position} értéke \texttt{tour}, \texttt{retour} vagy \texttt{body}. Több body szenzor esetén a \texttt{level} súlyozza az átlagot.
+
+A pumpa fontos mezői a \texttt{name}, \texttt{workingMode}, \texttt{IOnumber}, \texttt{minControlSig}, \texttt{maxControlSig} és opcionálisan a \texttt{dischargepump}. PID használatakor a \texttt{pid.enabled}, \texttt{p}, \texttt{i}, \texttt{d}, \texttt{tempSensorId} és \texttt{setPoint} mezők kötelezőek.
+
+\section{HTTP API}
+
+Az API alapértelmezett portja 80. A route-ok regisztrációja a \texttt{src/main.cpp} \texttt{registerHttpRoutes()} függvényében történik.
+
+\subsection{API-kérés limit}
+
+Az API limiter a \texttt{API\_MIN\_REQUEST\_INTERVAL\_MS} build flaggel konfigurálható. Alapértéke 0, ezért jelenleg ki van kapcsolva.
+
+\begin{lstlisting}
+-DAPI_MIN_REQUEST_INTERVAL_MS=250
+\end{lstlisting}
+
+Bekapcsoláskor a túl gyors kérés HTTP 429 választ és \texttt{Retry-After} fejlécet ad.
+
+\subsection{Állapot lekérése}
+
+\begin{lstlisting}
+GET /state
+\end{lstlisting}
+
+A válasz egy JSON objektum. Az IO-k és szenzorok lapos kulcsként, a modulállapotok modulnév alatt jelennek meg.
+
+\begin{lstlisting}[language=json]
+{
+  "1": 0,
+  "3": 100,
+  "28000B96A00000000029": 55.4,
+  "Puffer950l": {
+    "state": "CHARGE",
+    "HT": "12.3"
+  }
+}
+\end{lstlisting}
+
+\subsection{Hőmérsékletértékek beállítása}
+
+\begin{lstlisting}
+POST /setTemp
+Content-Type: application/json
+\end{lstlisting}
+
+Példa:
+
+\begin{lstlisting}[language=json]
+{
+  "28000B96A00000000029": 55.0,
+  "2814576B00000000059": 48.5
+}
+\end{lstlisting}
+
+Sikeres válasz: \texttt{"status":"success"}. Ezt a tesztkörnyezet használja az érzékelőértékek szimulálására.
+
+\subsection{Fűtési igény}
+
+\begin{lstlisting}
+GET /heatingRequest?name=PadloKozos&setTemp=true
+GET /heatingRequest?name=PadloKozos&setTemp=false
+\end{lstlisting}
+
+A \texttt{name} konfigurált fűtési elemnév, a \texttt{setTemp} ebben az API-ban logikai fűtési igényt jelent.
+
+\subsection{Manuális pumpa- és IO-vezérlés}
+
+\begin{lstlisting}
+POST /manualControlPumps
+Content-Type: application/json
+\end{lstlisting}
+
+Aktuális formátum:
+
+\begin{lstlisting}[language=json]
+{
+  "3": {"manual": true, "value": 50},
+  "4": {"manual": false}
+}
+\end{lstlisting}
+
+Kompatibilitási formátum is támogatott:
+
+\begin{lstlisting}[language=json]
+{"3": 50, "4": 0}
+\end{lstlisting}
+
+A PWM értéknek 0 és 100 közé kell esnie. A manuális mód felülírja az automatikus vezérlést az adott IO-n.
+
+\subsection{Eszközinformáció}
+
+\begin{lstlisting}
+GET /deviceInfo
+\end{lstlisting}
+
+A válasz tartalmazza a firmware uptime értékét, WiFi adatokat, chip- és flash-információkat, SPIFFS teljes/használt/szabad méretét, heap adatokat és reset információt.
+
+\subsection{Konfiguráció lekérése és feltöltése}
+
+\begin{lstlisting}
+GET /configuration
+POST /configuration
+\end{lstlisting}
+
+A GET a jelenlegi \texttt{/config.json} fájlt adja vissza. A POST multipart file upload, a fájl neve legyen \texttt{config.json}. A firmware validálja a konfigurációt, biztonsági mentést készít, majd a sikeres feltöltés után újraindítás szükséges.
+
+\subsection{Újraindítás}
+
+\begin{lstlisting}
+GET /reboot?user=admin&password=password
+\end{lstlisting}
+
+Ez a jelenlegi implementációban rögzített hitelesítést használ. Éles rendszerben ezt módosítani kell.
+
+\section{Bináris állapotnapló}
+
+A naplózás a \texttt{StateDataLogger} osztályban van. A fájlnév:
+
+\begin{lstlisting}
+/state_YYYY-MM-DD.bin
+\end{lstlisting}
+
+A napló az NTP kliens által szolgáltatott dátum alapján napi fájlba kerül. A naplózás legalább másodpercenként ellenőriz, de csak változás esetén ír új mintát. A hőmérsékleti küszöb 0,1~$^\circ$C, build flaggel módosítható.
+
+\subsection{Fájlfejléc}
+
+\begin{longtable}{rll}
+\toprule
+Offset & Méret & Tartalom \\
+\midrule
+0 & 4 bájt & \texttt{HLOG} magic \\
+4 & 1 bájt & formátumverzió, jelenleg 1 \\
+5 & 3 bájt & fenntartott \\
+\bottomrule
+\end{longtable}
+
+\subsection{Rekordfejléc}
+
+Minden rekordhoz 5 bájtos fejléc tartozik:
+
+\begin{longtable}{rll}
+\toprule
+Méret & Típus & Jelentés \\
+\midrule
+1 bájt & \texttt{uint8\_t} & rekordtípus: 1 séma, 2 minta \\
+2 bájt & \texttt{uint16\_t} & payload hossza, little-endian \\
+2 bájt & \texttt{uint16\_t} & CRC16 a payloadra \\
+\bottomrule
+\end{longtable}
+
+\subsection{Sémarekord}
+
+A séma azonosítókat rendel az emberileg értelmezhető kulcsokhoz. Egy mező leírása 2 bájt ID-t, 1 bájt típust, 1 bájt névhosszt és a mezőnév bájtjait tartalmazza. Példák:
+
+\begin{lstlisting}
+io/3
+sensor/2814576B00000000059
+state/Puffer950l/state
+state/Puffer950l/HT
+\end{lstlisting}
+
+Sémarekord akkor kerül a fájlba, amikor a logger először indul, új nap kezdődik, vagy az aktuális mezőkészlet/típus megváltozik. A konfigurációból később megjelenő új szenzor új sémát eredményezhet.
+
+\subsection{Mintarekord}
+
+Egy mintarekord egy időpontot és az adott időpontban megváltozott mezőket tartalmazza. Az első időbélyeg teljes 32 bites Unix idő, a továbbiak Delta-of-Delta ZigZag-varint formában vannak. Egy mező 2 bájtos azonosítóból, 1 bájtos típusból és 1 vagy 4 bájtos értékből áll.
+
+\begin{itemize}
+  \item \texttt{uint8}: IO/PWM vagy enum/állapotérték;
+  \item \texttt{float32}: hőmérséklet és \texttt{HT} érték;
+  \item egy mintában több mező osztozik az időbélyegen és a CRC-n.
+\end{itemize}
+
+\subsection{JSON visszaolvasás}
+
+\begin{lstlisting}
+GET /state-history/files
+GET /state-history?date=YYYY-MM-DD
+DELETE /state-history?date=YYYY-MM-DD
+\end{lstlisting}
+
+A fájllista-végpont az eszköz aktuális NTP-dátumát és a megtalált naplófájlokat adja vissza:
+
+\begin{lstlisting}[language=json]
+{
+  "currentDate": "2026-11-06",
+  "files": [
+    {"name": "state_2026-11-05.bin", "size": 6213}
+  ]
+}
+\end{lstlisting}
+
+A frontendnek a \texttt{currentDate} mezőt kell használnia alapértelmezett dátumként. A lekérdezés válasza változáslistát ad:
+
+\begin{lstlisting}[language=json]
+[
+  {
+    "timestamp": 1793913984,
+    "changes": {
+      "io/1": 0,
+      "sensor/2814576B00000000059": 48.5,
+      "state/Puffer950l/state": "CHARGE"
+    }
+  }
+]
+\end{lstlisting}
+
+A frontendnek nem szabad a \texttt{changes} objektumot teljes állapotként kezelnie. A rekordokat időrendben kell feldolgozni, és minden változást az előző teljes állapotba kell merge-elni.
+
+\section{SPIFFS és tárhely}
+
+ESP8266 esetén a \texttt{esp12e} környezet alapértelmezett flash-elrendezést használ. ESP32 esetén a \texttt{partitions\_4mb\_web.csv} SPIFFS partíciója \texttt{0x230000} bájt, azaz 2\,293\,760 bájt. A ténylegesen szabad helyet a \texttt{GET /deviceInfo} válasz \texttt{spiffs.total}, \texttt{spiffs.used} és \texttt{spiffs.free} mezői adják.
+
+A naplófájlok automatikus törlése jelenleg nincs bekapcsolva. Több nap után a frontend vagy egy karbantartási feladat használhatja a DELETE végpontot.
+
+\subsection{Szöveges alkalmazáslog}
+
+A \texttt{LOG\_WRITE} makró a soros kimenet mellett az aktuális napi szöveges fájlba is ír. A fájlok neve:
+
+\begin{lstlisting}
+/log_YYYY-MM-DD.txt
+\end{lstlisting}
+
+A \texttt{/log.txt} régi/kompatibilitási fájl is beleszámít a kvótába. Az összes \texttt{log*.txt} fájl együttes maximális mérete 10\,240 bájt. Minden új logbejegyzés előtt a rendszer összegyűjti a logfájlok méretét, majd név szerinti sorrendben törli a legrégebbi fájlokat, amíg az új bejegyzés be nem fér.
+
+Ez a kvóta csak a szöveges alkalmazáslogokra vonatkozik. A \texttt{state\_*.bin} állapotnaplók külön fájlok, és nem számítanak bele ebbe a 10 KB-os limitbe.
+
+A fájlműveletek csökkentése érdekében a logüzenetek először egy 2048 bájtos RAM pufferbe kerülnek. A puffer kiürül:
+
+\begin{itemize}
+  \item ha megtelik;
+  \item 5 másodperccel az első pufferelt üzenet után;
+  \item dátumváltáskor;
+  \item közvetlen, kényszerített flush esetén.
+\end{itemize}
+
+A soros kimenet ettől függetlenül azonnali. A pufferméret és az időzített flush build flaggel módosítható a \texttt{APPLICATION\_LOG\_BUFFER\_SIZE} és \texttt{APPLICATION\_LOG\_FLUSH\_INTERVAL\_MS} makrókkal.
+
+\section{Build és telepítés}
+
+Gyakori környezetek a \texttt{platformio.ini} fájlban:
+
+\begin{longtable}{p{0.35\textwidth}p{0.52\textwidth}}
+\toprule
+Környezet & Cél \\
+\midrule
+\texttt{esp12e} & ESP8266 normál firmware \\
+\texttt{esp12e\_testOverAPI} & ESP8266 API integrációs tesztekhez \\
+\texttt{esp12e\_testRandomData} & ESP8266 szintetikus/random adatokhoz \\
+\texttt{esp32dev} & ESP32 normál firmware \\
+\texttt{esp32dev\_testOverAPI} & ESP32 API integrációs tesztekhez \\
+\texttt{linux\_test} & natív unit teszt környezet \\
+\bottomrule
+\end{longtable}
+
+\begin{lstlisting}
+pio run -e esp12e_testOverAPI
+pio run -e esp12e_testOverAPI -t upload
+pio run -e esp12e_testOverAPI -t uploadfs
+\end{lstlisting}
+
+A naplózási build flag-ek:
+
+\begin{lstlisting}
+-DSTATE_LOG_TEMP_THRESHOLD_C=0.1f
+-DSTATE_LOG_MIN_CAPTURE_INTERVAL_MS=1000UL
+-DAPI_MIN_REQUEST_INTERVAL_MS=0UL
+\end{lstlisting}
+
+\section{Tesztelés}
+
+A Python integrációs tesztek a \texttt{tests/} könyvtárban vannak. A firmware-nek hálózaton elérhetőnek kell lennie.
+
+\begin{lstlisting}
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-test.txt
+HEATING_CONTROLLER_URL=http://192.168.0.106 \\
+  python -m pytest -m integration -vv -s
+\end{lstlisting}
+
+A tesztek alapértelmezett beállási várakozása 3 másodperc. A részletes API riportokhoz használható a \texttt{--api-trace}, \texttt{--api-report} és \texttt{--api-html-report} kapcsoló.
+
+\section{Továbbfejlesztési javaslatok}
+
+\begin{enumerate}
+  \item Induláskor a meglévő fájl utolsó sémájának beolvasása, hogy újraindításkor ne kerüljön be feleslegesen azonos sémarekord.
+  \item A fájllista végpont kiegészítése teljes, használt és szabad SPIFFS mérettel.
+  \item Napló-retenció vagy maximális naplófájl-szám bevezetése.
+  \item A \texttt{/reboot} hitelesítésének konfigurálhatóvá tétele.
+  \item A state enumok központi, verziózott dictionary-je az ismeretlen állapotok hash-elése helyett.
+  \item A bináris formátumhoz host oldali dekóder és automatikus formátumteszt készítése.
+\end{enumerate}
+
+\end{document}

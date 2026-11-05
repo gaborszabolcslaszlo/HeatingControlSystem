@@ -22,6 +22,7 @@
 #include <esp_heap_caps.h>
 #endif
 #include "esp_routes.h"
+#include "state_data_logger.h"
 
 const int max_attempts = 20;
 int attempt = 0;
@@ -260,6 +261,12 @@ void registerHttpRoutes()
   server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
   server.on("/deviceInfo", HTTP_GET, handleDeviceInfo);
   server.on("/manualControlPumps", HTTP_POST, handleManualMode);
+  server.on("/state-history", HTTP_GET, []()
+            { stateDataLogger.handleGet(); });
+  server.on("/state-history/files", HTTP_GET, []()
+            { stateDataLogger.handleList(); });
+  server.on("/state-history", HTTP_DELETE, []()
+            { stateDataLogger.handleDelete(); });
 
   server.on("/", HTTP_GET, handleWebUserInterfaceRequest);
   server.on("/styles.css", HTTP_GET, handleWebUserInterfaceRequest);
@@ -316,6 +323,7 @@ void setup()
   initializeNetwork();
   initializeWebServer();
   initializeHeatingSensors();
+  stateDataLogger.begin();
   initializeWebSocket();
   initializeRuntime();
   enableInitialHeatingDemand();
@@ -460,6 +468,8 @@ void loop()
   handleHttpRequests();
   updateSensorsAndReportDuration();
   consumeHeatingSystemUpdateSignal();
+  stateDataLogger.capture();
+  flushLogBuffer();
   processWebSocket();
   reportPeriodicMemoryUsage();
   broadcastStateIfChanged();

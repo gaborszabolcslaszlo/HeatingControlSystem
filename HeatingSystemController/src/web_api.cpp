@@ -95,6 +95,7 @@ void handleReboot()
   // Ellenőrizzük a paramétereket
   if (server.arg("user") == "admin" && server.arg("password") == "password")
   {
+    flushLogBuffer(true);
     server.send(200, "text/plain", "Rebooting..."); // Válasz a kérésre
     delay(1000);                                    // Várjunk egy kicsit, hogy a válasz eljusson
     ESP.restart();                                  // Újraindítás
