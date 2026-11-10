@@ -58,7 +58,7 @@ int Pump::getControlSignal() const
 // Setter metódus
 void Pump::setControlSignal(int value)
 {
-    if (!pid_c.enabled && !pid_c.initialized)
+    if (!pid_c.enabled || !pid_c.initialized)
     {
         controlSignal = value;
     }

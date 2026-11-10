@@ -56,10 +56,6 @@ public:
 
     void update();
 
-    void controlHeatingSystem(HeatingElement *kazan);
-
-    void HeatingFromPuffer_Handler(HeatingElement *elem, bool NeedHeating = false);
-
     void intiHeatingSystem(const std::string &filename);
 
 private:

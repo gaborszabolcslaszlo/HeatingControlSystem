@@ -79,7 +79,10 @@ void handleWebUserInterfaceRequest()
 
   if (isGzipped)
   {
-    // server.sendHeader("Content-Encoding", "gzip");
+    // A fájl tartalma már a build során gzip-pel tömörítve került a SPIFFS-be.
+    // Ezt a fejlécet a böngésző használja a kitömörítéshez; nélküle a gzip
+    // bájtokat JavaScriptként próbálja értelmezni.
+    server.sendHeader("Content-Encoding", "gzip");
     server.sendHeader("Cache-Control", "public, max-age=3600");
     server.sendHeader("ETag", "v1"); // egyszerű statikus ETag
   }

@@ -399,6 +399,14 @@ const char *StateDataLogger::stateName(uint8_t code)
 
 void StateDataLogger::handleGet()
 {
+    // Védelmi ág arra az esetre, ha egy webszerver-implementáció a rövidebb
+    // /state-history route-ot választaná a /state-history/files helyett.
+    if (server.uri() == "/state-history/files")
+    {
+        handleList();
+        return;
+    }
+
     const String date = server.hasArg("date") ? server.arg("date") : currentDate();
     if (!validDate(date))
     {
@@ -415,7 +423,6 @@ void StateDataLogger::handleGet()
         return;
     }
 
-    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     // send() only starts the response; sendContent() appends the complete JSON
     // stream. Passing '[' as the body would advertise a one-byte response on
     // some ESP8266 WebServer versions and Postman would show an empty body.

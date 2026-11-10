@@ -39,6 +39,16 @@ def _configured_values() -> dict[str, float]:
     return values
 
 
+def _configured_pump_io_numbers() -> set[str]:
+    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    return {
+        str(pump["IOnumber"])
+        for element_type in ("KAZAN", "PUFER", "RADIATOR")
+        for element in config["HeatingSystem"][element_type]
+        for pump in element.get("pumps", [])
+    }
+
+
 def _puffer_pid_values(kazan_retour: float) -> dict[str, float]:
     """Visszaadja a PID trendteszt egyetlen hőmérsékleti bemeneti állapotát."""
     return {
@@ -175,6 +185,21 @@ def test_state_api_contains_all_configured_sensor_ids(set_sensor_values, read_st
     state = read_state()
     configured_ids = set(_sensor_ids("KAZAN")) | set(_sensor_ids("PUFER"))
     assert configured_ids <= state.keys()
+
+
+@pytest.mark.integration
+def test_state_api_contains_all_configured_pump_outputs(
+    set_sensor_values, read_state
+):
+    """A /state minden konfigurált pumpa kimeneti IO-ját visszaadja."""
+    set_sensor_values(_configured_values())
+    state = read_state()
+    pump_io_numbers = _configured_pump_io_numbers()
+
+    assert pump_io_numbers <= state.keys()
+    for io_number in pump_io_numbers:
+        assert isinstance(state[io_number], (int, float))
+        assert 0 <= state[io_number] <= 100
 
 
 @pytest.mark.integration

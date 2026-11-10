@@ -302,6 +302,42 @@ void handleManualMode()
   server.send(200, "application/json", "{\"status\":\"success\"}");
 }
 
+void handleManualModeStatus()
+{
+  if (!allowApiRequest())
+  {
+    return;
+  }
+
+  String json = "{\"outputs\":{";
+  bool first = true;
+
+  for (const auto &pair : IOMap)
+  {
+    if (!first)
+    {
+      json += ",";
+    }
+    first = false;
+
+    const int io = pair.first;
+    json += "\"";
+    json += String(io);
+    json += "\":{";
+    json += "\"value\":";
+    json += String(pair.second);
+    json += ",\"manual\":";
+    json += (io >= 0 && io < static_cast<int>(manualIOOverrides.size()) &&
+                     manualIOOverrides[static_cast<size_t>(io)]
+                 ? "true"
+                 : "false");
+    json += "}";
+  }
+
+  json += "}}";
+  server.send(200, "application/json", json);
+}
+
 void handleDeviceInfo()
 {
   if (!allowApiRequest())
@@ -460,6 +496,11 @@ void hadleStateRequest()
 
   for (const auto &pair : Sensor::SensorsValue)
   {
+    if (pair.first.empty())
+    {
+      continue;
+    }
+
     addComma();
     json += "\"";
     json += pair.first.c_str();

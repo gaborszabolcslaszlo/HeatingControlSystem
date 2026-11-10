@@ -75,10 +75,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 
 void onTimerISR()
 {
-  // ISR-ben nincs Serial, logMessage vagy állapotgép-frissítés.
-  // Ezek a műveletek a loop()-ban, az updatePending ellenőrzése után futnak.
+  // Az állapotgép frissítése a timer ciklusában marad.
   heatingSystemUpdatePending = true;
-
   hs->update();
 }
 
@@ -113,6 +111,8 @@ void initializeSerialAndHardware()
 {
   Serial.begin(115200);
   Serial.flush();
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, LOW);
 #ifdef ESP32
   logInfo("[BOOT] ESP32 indulás\n");
 #else
@@ -261,10 +261,11 @@ void registerHttpRoutes()
   server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
   server.on("/deviceInfo", HTTP_GET, handleDeviceInfo);
   server.on("/manualControlPumps", HTTP_POST, handleManualMode);
-  server.on("/state-history", HTTP_GET, []()
-            { stateDataLogger.handleGet(); });
+  server.on("/manualControlPumps", HTTP_GET, handleManualModeStatus);
   server.on("/state-history/files", HTTP_GET, []()
             { stateDataLogger.handleList(); });
+  server.on("/state-history", HTTP_GET, []()
+            { stateDataLogger.handleGet(); });
   server.on("/state-history", HTTP_DELETE, []()
             { stateDataLogger.handleDelete(); });
 
@@ -373,7 +374,7 @@ void updateSensorsAndReportDuration()
 
   if (sensorUpdateDuration > 500UL)
   {
-    logWarn("updateDsSensors took %lums\n", sensorUpdateDuration);
+    logDebug("updateDsSensors took %lums\n", sensorUpdateDuration);
   }
 }
 
@@ -390,13 +391,8 @@ void consumeHeatingSystemUpdateSignal()
 
   if (updatePending)
   {
-    // Az állapotgép frissítését az onTimerISR végzi, a meglévő működés szerint.
-    unsigned long heatingUpdateStarted = millis();
-    unsigned long heatingUpdateDuration = millis() - heatingUpdateStarted;
-    if (heatingUpdateDuration > 500UL)
-    {
-      logWarn("hs->update took %lums\n", heatingUpdateDuration);
-    }
+    // Ciklusjelzés: minden hőmérséklet-automatika frissítésnél vált a LED.
+    digitalWrite(STATUS_LED_PIN, !digitalRead(STATUS_LED_PIN));
   }
 }
 

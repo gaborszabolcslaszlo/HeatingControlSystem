@@ -22,6 +22,23 @@ PUFFER_RETOUR = "28899B43D44400637"
 STATE_CHECK_INTERVAL_SECONDS = float(os.getenv("STATE_SETTLE_SECONDS", "3"))
 
 
+def _assert_pump_outputs(
+    state: dict, *, active: tuple[str, ...] = (), inactive: tuple[str, ...] = ()
+) -> None:
+    """Ellenőrzi a pumpa-IO-k tényleges kimeneti értékét a /state válaszban."""
+    for io_number in active:
+        output = state[io_number]
+        assert isinstance(output, (int, float))
+        assert output > 0, f"IO{io_number} pumpa kimenete nem aktív: {output}"
+        assert output <= 100
+
+    for io_number in inactive:
+        output = state[io_number]
+        assert output == pytest.approx(0, abs=1.0), (
+            f"IO{io_number} pumpa kimenete nem nulla: {output}"
+        )
+
+
 def _puffer_body_values(value: float) -> dict[str, float]:
     return {
         PUFFER_BODY: value,
@@ -151,6 +168,9 @@ def test_kazan_state_transition_sequence(
             "HeatingController": "STANDBY",
         },
     )
+    _assert_pump_outputs(
+        read_state(retry=True), inactive=("3", "4", "5", "6", "7")
+    )
 
     _set_temperatures(
         set_sensor_values,
@@ -165,6 +185,9 @@ def test_kazan_state_transition_sequence(
             "HeatingController": "STANDBY",
         },
     )
+    _assert_pump_outputs(
+        read_state(retry=True), active=("7",), inactive=("3", "4", "5", "6")
+    )
 
     _set_temperatures(set_sensor_values, **{KAZAN_RETOUR: 50})
     _wait_for_states(
@@ -175,6 +198,9 @@ def test_kazan_state_transition_sequence(
             RADIATOR: "STANDBY",
             "HeatingController": "CHARGING_BUFFER",
         },
+    )
+    _assert_pump_outputs(
+        read_state(retry=True), active=("4", "7"), inactive=("3", "5", "6")
     )
 
     _set_temperatures(set_sensor_values, **{KAZAN_BODY: 85, KAZAN_TOUR: 85})
@@ -187,6 +213,9 @@ def test_kazan_state_transition_sequence(
             "HeatingController": "CHARGING_BUFFER",
         },
     )
+    _assert_pump_outputs(
+        read_state(retry=True), active=("4", "7"), inactive=("3", "5", "6")
+    )
 
     _set_temperatures(set_sensor_values, **{KAZAN_BODY: 70, KAZAN_TOUR: 70})
     _wait_for_states(
@@ -197,6 +226,9 @@ def test_kazan_state_transition_sequence(
             RADIATOR: "STANDBY",
             "HeatingController": "CHARGING_BUFFER",
         },
+    )
+    _assert_pump_outputs(
+        read_state(retry=True), active=("4", "7"), inactive=("3", "5", "6")
     )
 
 
@@ -247,6 +279,9 @@ def test_radiator_waiting_receiving_and_standby(
             RADIATOR: "RECEIVING_HEATING",
             "HeatingController": "CHARGING_BUFFER_AND_HEATING",
         },
+    )
+    _assert_pump_outputs(
+        read_state(retry=True), active=("5", "6", "4", "7"), inactive=("3",)
     )
 
     _request_radiator_heat(api_session, api_base_url, False)

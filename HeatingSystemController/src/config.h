@@ -522,7 +522,6 @@ void handleConfiguration()
     handleFileUpload();
   }
 
-  server.client().flush();
 }
 
 #endif

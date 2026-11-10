@@ -81,6 +81,7 @@ HeatingElement::HeatingElement(MessageBus &bus, const std::string name) : messag
 
 void HeatingElement::activatePump(bool dischargePumpsOnly)
 {
+
     for (Pump &pump : pumps)
     {
         if (dischargePumpsOnly == pump.dischargepump)
@@ -203,7 +204,7 @@ float HeatingElement::calculateAverageTemperature(const std::vector<Sensor *> &s
     for (const Sensor *sensor : sensors)
     {
         if (sensor)
-        {                                                // Check if the sensor is not null
+        { // Check if the sensor is not null
             float temperature = Sensor::getSensorTemperature(sensor);
             sum += temperature;
             if (sensor->level > 0)
@@ -211,7 +212,7 @@ float HeatingElement::calculateAverageTemperature(const std::vector<Sensor *> &s
                 weightedSum += temperature * sensor->level;
                 totalWeight += sensor->level;
             }
-            ++count;                                     // Increment the count of valid sensors
+            ++count; // Increment the count of valid sensors
         }
     }
 

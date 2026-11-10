@@ -15,5 +15,6 @@ void handleHeatingRequest();
 void handleReboot();
 void handleSetTemperatureTest();
 void handleManualMode();
+void handleManualModeStatus();
 void handleDeviceInfo();
 void hadleStateRequest();
