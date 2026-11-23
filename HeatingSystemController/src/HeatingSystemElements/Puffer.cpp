@@ -59,7 +59,33 @@ void Puffer::moveEnergyToRadiators(float radiatorRequestTemp)
 
 bool Puffer::hasStoredEnergy()
 {
-    return getBodyTemperature() > 30; // Van tárolt energia, ha a hőmérséklet magasabb, mint a minimum
+    constexpr float STORED_ENERGY_THRESHOLD_C = 30.0f;
+
+    // A pufferben akkor is van kivehető energia, ha a felső réteg meleg.
+    // A konfigurációban a level 0% jelenti a tetejét, a 100% az alját.
+    // Ezért nem a teljes puffer súlyozott átlagát használjuk: az alsó,
+    // melegebb vagy hidegebb rétegek nem írhatják felül a felső réteg állapotát.
+    bool hasTopSensor = false;
+    int topLevel = 0;
+    float topTemperature = 0.0f;
+
+    for (const Sensor *sensor : bodySensors)
+    {
+        if (sensor == nullptr)
+            continue;
+
+        const float temperature = Sensor::getSensorTemperature(sensor);
+        if (!hasTopSensor ||
+            sensor->level < topLevel ||
+            (sensor->level == topLevel && temperature > topTemperature))
+        {
+            hasTopSensor = true;
+            topLevel = sensor->level;
+            topTemperature = temperature;
+        }
+    }
+
+    return hasTopSensor && topTemperature > STORED_ENERGY_THRESHOLD_C;
 }
 
 void Puffer::update()
@@ -71,6 +97,7 @@ void Puffer::update()
     // Serial.print("Puffer: ");
     HeatingElement::update();
     sm.run();
+    HeatingElement::update();
     // Serial.println(getStateName(sm.getState()));
     HeatingElement::setStateValue(name, "HT", this->heatTransfer.transferValue);
     HeatingElement::setStateValue(name, "state", getStateName(sm.getState()));
@@ -85,6 +112,7 @@ void Puffer::run()
     // Serial.print("Puffer: ");
     HeatingElement::update();
     sm.run();
+    HeatingElement::update();
     // Serial.println(getStateName(sm.getState()));
     HeatingElement::setStateValue(name, "HT", this->heatTransfer.transferValue);
     HeatingElement::setStateValue(name, "state", getStateName(sm.getState()));

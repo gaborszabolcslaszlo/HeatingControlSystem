@@ -18,3 +18,4 @@ void handleManualMode();
 void handleManualModeStatus();
 void handleDeviceInfo();
 void hadleStateRequest();
+void handleDsSensorRescan();

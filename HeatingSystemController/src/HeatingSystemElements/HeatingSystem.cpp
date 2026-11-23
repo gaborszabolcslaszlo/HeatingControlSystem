@@ -314,7 +314,7 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                     pid_c = PID(p, i, d);
                     pid_c.enabled = pid["enabled"] | true;
                     pid_c.tempSensorId = tempSensorId;
-                    pid_c.outMin = 5;
+                    pid_c.outMin = 0.0;
                     pid_c.outMax = 99.9;
                     pid_c.setPointConfig = pid["setPoint"];
                     pid_c.allparamok = true;

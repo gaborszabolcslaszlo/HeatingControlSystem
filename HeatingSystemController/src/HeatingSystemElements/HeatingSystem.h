@@ -56,6 +56,8 @@ public:
 
     void update();
 
+    bool hasControllerFault() const { return controller.getState() == HeatingController::FAULT; }
+
     void intiHeatingSystem(const std::string &filename);
 
 private:

@@ -26,6 +26,7 @@ public:
     void capture();
 
     void handleGet();
+    void handleRawGet();
     void handleDelete();
     void handleList();
 
@@ -65,6 +66,8 @@ private:
     int32_t previousDelta = 0;
     bool hasTimestamp = false;
     bool started = false;
+    volatile bool rawDownloadActive = false;
+    unsigned long rawDownloadStartedMs = 0;
 
     void collectFields();
     void ensureFile();
@@ -74,6 +77,7 @@ private:
     String currentDate() const;
     bool validDate(const String &date) const;
     void resetHistory();
+    void handleGetImpl();
 
     static uint8_t stateCode(const char *value);
     static const char *stateName(uint8_t code);

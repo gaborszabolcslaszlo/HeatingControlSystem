@@ -229,6 +229,64 @@ void writeLogMessage(const char *format, ...)
     applicationLogBuffer[applicationLogBufferLength] = '\0';
 }
 
+void writeGreenLogMessage(const char *format, ...)
+{
+    char message[512];
+    va_list arguments;
+    va_start(arguments, format);
+    const int written = vsnprintf(message, sizeof(message), format, arguments);
+    va_end(arguments);
+
+    if (written < 0)
+    {
+        return;
+    }
+
+    char line[560];
+    const int lineLength = snprintf(line, sizeof(line), "[%02d:%02d:%02d] %s",
+                                    timeClient.getHours(),
+                                    timeClient.getMinutes(),
+                                    timeClient.getSeconds(),
+                                    message);
+    if (lineLength <= 0)
+    {
+        return;
+    }
+
+    // ANSI szín csak a terminálra kerül; a fájlba színezés nélküli sor íródik.
+    Serial.print("\033[32m");
+    Serial.print(line);
+    Serial.print("\033[0m");
+
+    const size_t lineBytes = strnlen(line, sizeof(line));
+    if (lineBytes == 0)
+    {
+        return;
+    }
+
+    const String currentFile = getLogFileName();
+    if (applicationLogBufferLength > 0 && applicationLogBufferFile != currentFile)
+    {
+        flushLogBuffer(true);
+    }
+    if (applicationLogBufferLength + lineBytes > APPLICATION_LOG_BUFFER_SIZE)
+    {
+        flushLogBuffer(true);
+        applicationLogBufferFile = currentFile;
+        applicationLogBufferStartedAt = millis();
+    }
+    if (lineBytes <= APPLICATION_LOG_BUFFER_SIZE - applicationLogBufferLength)
+    {
+        if (applicationLogBufferLength == 0)
+            applicationLogBufferStartedAt = millis();
+        memcpy(applicationLogBuffer + applicationLogBufferLength, line, lineBytes);
+        applicationLogBufferLength += lineBytes;
+        applicationLogBufferFile = currentFile;
+        applicationLogBuffer[applicationLogBufferLength] = '\0';
+    }
+    flushLogBuffer(false);
+}
+
 void flushLogBuffer(bool force)
 {
     if (applicationLogBufferLength == 0)

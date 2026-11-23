@@ -95,6 +95,7 @@ void Kazan::update()
     checkRetourLowTemperatureProtection();
     HeatingElement::update();
     sm.run();
+    HeatingElement::update();
     logInfo("Kazan state: %s\n", getStateName(sm.getState()));
     HeatingElement::setStateValue(name, "iOHPA", isOverHeatProtectionActive ? "true" : "false");
     HeatingElement::setStateValue(name, "iRPA", isRetourProtectionActive ? "true" : "false");
@@ -103,15 +104,15 @@ void Kazan::update()
 
 void Kazan::run()
 {
-    HeatingElement::update();
     tourTemp = HeatingElement::getTourTemperature();
     retourTemp = HeatingElement::getReTourTemperature();
     bodyTemp = HeatingElement::getBodyTemperature();
 
     // checkRetourLowTemperatureProtection();
     // HeatingElement::update();
+    HeatingElement::update();
     sm.run();
-
+    HeatingElement::update();
     HeatingElement::setStateValue(name, "iOHPA", isOverHeatProtectionActive ? "true" : "false");
     HeatingElement::setStateValue(name, "iRPA", isRetourProtectionActive ? "true" : "false");
     HeatingElement::setStateValue(name, "state", getStateName(sm.getState()));

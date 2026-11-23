@@ -82,12 +82,13 @@ const char *Radiator::getStateName(State state) const
 
 void Radiator::run()
 {
-    HeatingElement::update();
     tourTemp = HeatingElement::getTourTemperature();
     retourTemp = HeatingElement::getReTourTemperature();
     bodyTemp = HeatingElement::getBodyTemperature();
 
+    HeatingElement::update();
     sm.run();
+    HeatingElement::update();
 
     HeatingElement::setStateValue(name, "state", getStateName(sm.getState()));
 }

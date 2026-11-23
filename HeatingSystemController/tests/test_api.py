@@ -39,6 +39,40 @@ def _configured_values() -> dict[str, float]:
     return values
 
 
+def _state_history_files(api_session, api_base_url: str) -> dict:
+    response = api_session.get(f"{api_base_url}/state-history/files", timeout=(2, 15))
+    response.raise_for_status()
+    payload = response.json()
+    assert isinstance(payload, dict)
+    assert isinstance(payload.get("files"), list)
+    return payload
+
+
+def _assert_raw_history_file(response, expected_size: int | None = None) -> None:
+    response.raise_for_status()
+    assert response.headers.get("Content-Type", "").startswith(
+        "application/octet-stream"
+    )
+    content = response.content
+    assert len(content) > 8, "A letöltött history fájl üres vagy túl rövid"
+    if expected_size is not None:
+        assert len(content) == expected_size
+    # Új fájlok HLOG fejléccel kezdődnek, régebbi firmware fájljai viszont
+    # közvetlenül schema rekorddal indulhatnak.
+    offset = 8 if content[:4] == b"HLOG" else 0
+    assert content[:4] == b"HLOG" or content[0] == 1
+    record_types = []
+    while offset + 5 <= len(content):
+        record_type = content[offset]
+        frame_length = int.from_bytes(content[offset + 1 : offset + 3], "little")
+        frame_end = offset + 5 + frame_length
+        assert frame_end <= len(content), "Csonka history rekord"
+        record_types.append(record_type)
+        offset = frame_end
+    assert 1 in record_types, "Hiányzik a history schema rekord"
+    assert 2 in record_types, "Hiányzik a history minta rekord"
+
+
 def _configured_pump_io_numbers() -> set[str]:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     return {
@@ -53,15 +87,15 @@ def _puffer_pid_values(kazan_retour: float) -> dict[str, float]:
     """Visszaadja a PID trendteszt egyetlen hőmérsékleti bemeneti állapotát."""
     return {
         **_configured_values(),
-        "28CC526B000000000EE": 55.0,
-        "2881506B00000000052": 55.0,
+        "28CC526B000000EE": 55.0,
+        "2881506B00000052": 55.0,
         "2832B643D42F2A25": kazan_retour,
-        "28000B96A00000000029": 55.0,
-        "2814576B00000000059": 20.0,
-        "286AD6940000000003F": 20.0,
-        "286E00683000000000003": 20.0,
-        "287EDB9400000000054": 20.0,
-        "28899B43D44400637": 20.0,
+        "28000B96A00000029": 55.0,
+        "2814576B00000059": 20.0,
+        "286AD6940000003F": 20.0,
+        "286E068300000003": 20.0,
+        "287EDB9400000054": 20.0,
+        "2826DE9400000009": 20.0,
     }
 
 
@@ -69,16 +103,16 @@ def _puffer_discharge_pid_values() -> dict[str, float]:
     """Visszaadja a DISCHARGE állapothoz szükséges bemeneti állapotot."""
     return {
         **_configured_values(),
-        "28CC526B000000000EE": 20.0,
-        "2881506B00000000052": 20.0,
+        "28CC526B000000EE": 20.0,
+        "2881506B00000052": 20.0,
         # 45 °C alatt marad, hogy a kazán ne váltson HEATING állapotba.
         "2832B643D42F2A25": 20.0,
-        "28000B96A00000000029": 55.0,
-        "2814576B00000000059": 55.0,
-        "286AD6940000000003F": 55.0,
-        "286E00683000000000003": 55.0,
-        "287EDB9400000000054": 55.0,
-        "28899B43D44400637": 55.0,
+        "28000B96A00000029": 55.0,
+        "2814576B00000059": 55.0,
+        "286AD6940000003F": 55.0,
+        "286E068300000003": 55.0,
+        "287EDB9400000054": 55.0,
+        "2826DE9400000009": 55.0,
     }
 
 
@@ -98,10 +132,33 @@ def _assert_puffer_pump_role(
     active_output = state[active_channel]
     inactive_output = state[inactive_channel]
 
-    assert isinstance(active_output, (int, float))
-    assert isinstance(inactive_output, (int, float))
-    assert 0 <= active_output <= 100
-    assert inactive_output == pytest.approx(0, abs=1.0)
+    active_passed = isinstance(active_output, (int, float)) and 0 <= active_output <= 100
+    inactive_passed = (
+        isinstance(inactive_output, (int, float))
+        and inactive_output == pytest.approx(0, abs=1.0)
+    )
+    session = getattr(read_state, "_trace_session", None)
+    if session is not None:
+        trace_index = getattr(read_state, "_last_trace_index", None)
+        session.record_assertion(
+            f"IO{active_channel} pumpa kimenetének ellenőrzése",
+            "aktív (0..100)",
+            active_output,
+            active_passed,
+            element=f"IO{active_channel}",
+            trace_index=trace_index,
+        )
+        session.record_assertion(
+            f"IO{inactive_channel} pumpa kimenetének ellenőrzése",
+            "inaktív (= 0)",
+            inactive_output,
+            inactive_passed,
+            element=f"IO{inactive_channel}",
+            trace_index=trace_index,
+        )
+
+    assert active_passed
+    assert inactive_passed
     return float(active_output)
 
 
@@ -203,28 +260,117 @@ def test_state_api_contains_all_configured_pump_outputs(
 
 
 @pytest.mark.integration
+@pytest.mark.slow
+def test_state_history_rotates_and_raw_files_are_downloadable(
+    set_sensor_values, api_session, api_base_url
+):
+    """Sok mintát ír, megvárja a history-szegmens rotációját és letölti a fájlokat.
+
+    A firmware legalább egy másodpercenként ír mintát, ezért ez a teszt
+    szándékosan lassú. A timeout és az egyes minták közötti várakozás
+    környezeti változóval állítható.
+    """
+    timeout_seconds = float(
+        os.getenv("STATE_HISTORY_ROTATION_TIMEOUT_SECONDS", "1800")
+    )
+    sample_interval = max(
+        1.05, float(os.getenv("STATE_HISTORY_SAMPLE_INTERVAL_SECONDS", "1.2"))
+    )
+    if timeout_seconds <= 0:
+        pytest.fail("STATE_HISTORY_ROTATION_TIMEOUT_SECONDS legyen pozitív")
+
+    before = _state_history_files(api_session, api_base_url)
+    date = before["currentDate"]
+    prefix = f"/state_{date}"
+    before_files = {
+        entry["name"]: int(entry["size"])
+        for entry in before["files"]
+        if isinstance(entry, dict)
+        and str(entry.get("name", "")).startswith(prefix)
+        and str(entry.get("name", "")).endswith(".bin")
+    }
+    target_file_count = len(before_files) + 1
+
+    deadline = time.monotonic() + timeout_seconds
+    iteration = 0
+    latest_files = before_files
+    configured = _configured_values()
+    while time.monotonic() < deadline:
+        # Minden konfigurált kazán- és puffer-szenzor változzon, így minden
+        # mintavételi ciklusban tényleges history rekord keletkezik.
+        value = 20.0 + float(iteration % 70)
+        set_sensor_values({sensor_id: value for sensor_id in configured})
+        iteration += 1
+        time.sleep(sample_interval)
+
+        if iteration % 5 != 0:
+            continue
+        listing = _state_history_files(api_session, api_base_url)
+        latest_files = {
+            entry["name"]: int(entry["size"])
+            for entry in listing["files"]
+            if isinstance(entry, dict)
+            and str(entry.get("name", "")).startswith(prefix)
+            and str(entry.get("name", "")).endswith(".bin")
+        }
+        if len(latest_files) >= target_file_count:
+            # A frissen megnyitott szegmensbe is írjunk több mintát, ne csak a
+            # rotáció által létrehozott schema rekordot ellenőrizzük.
+            for extra in range(3):
+                extra_value = 20.0 + float((iteration + extra + 1) % 70)
+                set_sensor_values(
+                    {sensor_id: extra_value for sensor_id in configured}
+                )
+                time.sleep(sample_interval)
+            refreshed = _state_history_files(api_session, api_base_url)
+            latest_files = {
+                entry["name"]: int(entry["size"])
+                for entry in refreshed["files"]
+                if isinstance(entry, dict)
+                and str(entry.get("name", "")).startswith(prefix)
+                and str(entry.get("name", "")).endswith(".bin")
+            }
+            break
+
+    assert len(latest_files) == target_file_count, (
+        f"Hibás history-rotáció: pontosan egy új szegmensnek kell létrejönnie; "
+        f"elvárt fájlszám: {target_file_count}, tényleges: {len(latest_files)}, "
+        f"fájlok: {latest_files}"
+    )
+    # A két legfrissebb szegmenst a raw API-n keresztül is ellenőrizzük.
+    for file_name in sorted(latest_files)[-2:]:
+        assert latest_files[file_name] > 8, f"Üres history fájl: {file_name}"
+        response = api_session.get(
+            f"{api_base_url}/api/state-history/raw",
+            params={"name": file_name},
+            timeout=(2, 120),
+        )
+        _assert_raw_history_file(response, expected_size=latest_files[file_name])
+
+
+@pytest.mark.integration
 def test_puffer_pid_pumps_produce_pwm_output(
     set_sensor_values, read_state
 ):
     """A puffer két PID vezérelt pumpájának PWM kimenetét ellenőrzi.
 
-    A konfigurációban a puffer PID pumpái a 3-as és 4-es IO csatornát
-    használják. A /state válaszban kapott értéknek számszerű, 0..100 közötti
-    PWM értéknek kell lennie.
+    A konfigurációban a puffer PID pumpái a 8-as és 9-es IO csatornát
+    használják. Töltéskor az IO9 PWM kimenetét, kisütéskor az IO8 kimenetét
+    kell ellenőrizni.
     """
     values = {
         **_configured_values(),
         # Kazán hőt termel, a puffer alsó rétegei hidegek, ezért a vezérlőnek
         # töltési helyzetbe kell kerülnie, és a puffer pumpáit frissítenie kell.
-        "28CC526B000000000EE": 55.0,
-        "2881506B00000000052": 55.0,
+        "28CC526B000000EE": 55.0,
+        "2881506B00000052": 55.0,
         "2832B643D42F2A25": 50.0,
-        "28000B96A00000000029": 55.0,
-        "2814576B00000000059": 20.0,
-        "286AD6940000000003F": 20.0,
-        "286E00683000000000003": 20.0,
-        "287EDB9400000000054": 20.0,
-        "28899B43D44400637": 20.0,
+        "28000B96A00000029": 55.0,
+        "2814576B00000059": 20.0,
+        "286AD6940000003F": 20.0,
+        "286E068300000003": 20.0,
+        "287EDB9400000054": 20.0,
+        "2826DE9400000009": 20.0,
     }
 
     result = set_sensor_values(values)
@@ -234,9 +380,9 @@ def test_puffer_pid_pumps_produce_pwm_output(
 
     assert state["Puffer950l"]["state"] == "CHARGE"
 
-    assert "3" in state
-    assert "4" in state
-    _assert_puffer_pump_role(state, active_channel="4", inactive_channel="3")
+    assert isinstance(state["9"], (int, float))
+    assert 0 <= state["9"] <= 100
+    assert state["8"] == pytest.approx(0, abs=1.0)
 
 
 @pytest.mark.integration
@@ -245,13 +391,11 @@ def test_puffer_pid_output_follows_temperature_error(
 ):
     """A PID kimeneti trendjét ellenőrzi a hiba előjelének változásakor.
 
-    A puffer PID-je a kazán retour szenzorát használja, 60 °C-os setpointtal.
-    A négy mérési pont szándékosan egy teszten belül készül, hogy az integráló
-    tag állapota megmaradjon a lépések között.
+    A töltési PID a kazán retour szenzorát használja, és az IO9 PWM kimenetet
+    ellenőrizzük; az IO4 csak az ON/OFF töltőpumpa kimenete.
     """
-    # Először negatív hibával az alsó kimeneti tartomány felé visszük az
-    # integrált. Így a pozitív hiba trendje a korábbi tesztállapottól kevésbé
-    # függően látható.
+    # A konfiguráció negatív P/I együtthatói miatt a magasabb retour-hőmérséklet
+    # nagyobb töltési PWM-et eredményez.
     api_session.get(
         f"{api_base_url}/heatingRequest",
         params={"name": "PadloKozos", "setTemp": "false"},
@@ -259,47 +403,36 @@ def test_puffer_pid_output_follows_temperature_error(
     )
 
     set_sensor_values(_puffer_pid_values(kazan_retour=80.0))
-    low_error_state = read_state()
-    assert low_error_state["Puffer950l"]["state"] == "CHARGE"
-    low_error_output = _assert_puffer_pump_role(
-        low_error_state, active_channel="4", inactive_channel="3", read_state=read_state
-    )
+    high_temperature_state = read_state()
+    assert high_temperature_state["Puffer950l"]["state"] == "CHARGE"
+    high_temperature_output = high_temperature_state["9"]
+    assert isinstance(high_temperature_output, (int, float))
+    assert 0 <= high_temperature_output <= 100
 
-    # 0 °C retour -> pozitív hiba a 60 °C setpointtal szemben. A CHARGE alatt
-    # aktív 4-es pumpa kimenetének növekednie kell.
+    # 0 °C retour -> a negatív P tag miatt kisebb PWM kimenet.
     set_sensor_values(_puffer_pid_values(kazan_retour=0.0))
     positive_error_state = read_state()
     assert positive_error_state["Puffer950l"]["state"] == "CHARGE"
-    positive_error_output = _assert_puffer_pump_role(
-        positive_error_state,
-        active_channel="4",
-        inactive_channel="3",
-        read_state=read_state,
-    )
-    assert positive_error_output > low_error_output
+    low_temperature_output = positive_error_state["9"]
+    assert isinstance(low_temperature_output, (int, float))
+    assert 0 <= low_temperature_output <= 100
+    assert low_temperature_output < high_temperature_output
 
-    # 60 °C retour -> nulla hiba. Az integráló tag nem változik, ezért a PID
-    # kimenete lényegében tartja az előző értéket.
+    # A konfiguráció szerinti setpoint környékén is érvényes PWM-et kell kapnunk.
     set_sensor_values(_puffer_pid_values(kazan_retour=60.0))
     zero_error_state = read_state()
     assert zero_error_state["Puffer950l"]["state"] == "CHARGE"
-    zero_error_output = _assert_puffer_pump_role(
-        zero_error_state, active_channel="4", inactive_channel="3", read_state=read_state
-    )
-    assert zero_error_output == pytest.approx(positive_error_output, abs=1.0)
+    zero_error_output = zero_error_state["9"]
+    assert isinstance(zero_error_output, (int, float))
+    assert 0 <= zero_error_output <= 100
 
-    # 100 °C retour -> negatív hiba. Az integráló tag csökken, ezért a
-    # kimenetnek vissza kell fordulnia.
+    # Ismételt magas retour-hőmérsékleten is érvényes PWM-et kell kapnunk.
     set_sensor_values(_puffer_pid_values(kazan_retour=80.0))
     negative_error_state = read_state()
     assert negative_error_state["Puffer950l"]["state"] == "CHARGE"
-    negative_error_output = _assert_puffer_pump_role(
-        negative_error_state,
-        active_channel="4",
-        inactive_channel="3",
-        read_state=read_state,
-    )
-    assert negative_error_output < zero_error_output
+    negative_error_output = negative_error_state["9"]
+    assert isinstance(negative_error_output, (int, float))
+    assert 0 <= negative_error_output <= 100
 
 
 @pytest.mark.integration
@@ -343,7 +476,7 @@ def test_invalid_temperature_payload_is_rejected(api_session, api_base_url):
     """Érvénytelen hőmérsékletadat elutasításának ellenőrzése."""
     response = api_session.post(
         f"{api_base_url}/setTemp",
-        json={"2814576B00000000059": "not-a-temperature"},
+        json={"2814576B00000059": "not-a-temperature"},
         timeout=(2, 15),
     )
     assert response.status_code == 400

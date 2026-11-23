@@ -251,6 +251,27 @@ bool validateConfigurationJson(const String &jsonData, String &errorMessage)
         }
         sensorIds[sensorIdValue] = true;
 
+        const char *temperatureFields[] = {"minTemp", "maxTemp", "maxStep"};
+        for (const char *field : temperatureFields)
+        {
+          if (sensor.containsKey(field) && !isNumber(sensor[field]))
+          {
+            errorMessage = String("Hibas szenzorhofok-beallitas: ") + sensorId + "/" + field;
+            return false;
+          }
+        }
+        if (sensor.containsKey("minTemp") && sensor.containsKey("maxTemp") &&
+            sensor["minTemp"].as<float>() > sensor["maxTemp"].as<float>())
+        {
+          errorMessage = String("Hibas szenzorhomerseklet-tartomany: ") + sensorId;
+          return false;
+        }
+        if (sensor.containsKey("maxStep") && sensor["maxStep"].as<float>() <= 0)
+        {
+          errorMessage = String("A maxStep pozitiv kell legyen: ") + sensorId;
+          return false;
+        }
+
         if (sensor.containsKey("level"))
         {
           int level = sensor["level"] | -1;

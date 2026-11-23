@@ -10,25 +10,31 @@
         "KAZAN": [
             {
                 "name": "Kazan",
-                "retourTempProtValue": 45.0,
-                "tourTempProtValue": 80.0,
-                "activationThreshold": 41.0,
+                "retourTempProtValue": 38,
+                "tourTempProtValue": 80,
+                "activationThreshold": 34,
                 "sensors": [
                     {
                         "model": "DS12B20",
                         "position": "body",
-                        "id": "28CC526B000000000EE"
+                        "id": "28CC526B000000EE",
+                        "minTemp": 0,
+                        "maxTemp": 100
                     },
                     {
                         "model": "DS12B20",
                         "position": "tour",
-                        "id": "2881506B00000000052",
+                        "id": "2881506B00000052",
+                        "minTemp": 0,
+                        "maxTemp": 100,
                         "offset": -1
                     },
                     {
                         "model": "DS12B20",
                         "position": "retour",
                         "id": "2832B643D42F2A25",
+                        "minTemp": 0,
+                        "maxTemp": 100,
                         "offset": -1.5
                     }
                 ],
@@ -47,7 +53,21 @@
         "RADIATOR": [
             {
                 "name": "PadloKozos",
-                "sensors": [ ],
+                "sensors": [ {
+                        "model": "DS12B20",
+                        "position": "tour",
+                        "id": "2891706A0000007E",
+                        "minTemp": 0,
+                        "maxTemp": 100
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "retour",
+                        "id": "28AEA743D4C27A7F",
+                        "minTemp": 0,
+                        "maxTemp": 100
+                    }
+                ],
                 "pumps": [
                     {
                         "name": "kozos",
@@ -77,78 +97,113 @@
                     {
                         "model": "DS12B20",
                         "position": "tour",
-                        "id": "28000B96A00000000029",
-                        "level": 100
-                    },
-                    {
-                        "model": "DS12B20",
-                        "position": "body",
-                        "id": "2814576B00000000059",
-                        "offset": -1,
-                        "level": 80
-                    },
-                    {
-                        "model": "DS12B20",
-                        "position": "body",
-                        "id": "286AD6940000000003F",
-                        "offset": -1.5,
-                        "level": 60
-                    },
-                    {
-                        "model": "DS12B20",
-                        "position": "body",
-                        "id": "286E00683000000000003",
-                        "offset": -1.5,
-                        "level": 40
-                    },
-                    {
-                        "model": "DS12B20",
-                        "position": "body",
-                        "id": "287EDB9400000000054",
-                        "offset": -1.5,
-                        "level": 20
+                        "id": "2814576B00000059",
+                        "minTemp": 0,
+                        "maxTemp": 100
                     },
                     {
                         "model": "DS12B20",
                         "position": "retour",
-                        "id": "28899B43D44400637",
+                        "id": "2826DE9400000009",
+                        "minTemp": 0,
+                        "maxTemp": 100
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "2800B96A00000029",
+                        "minTemp": 0,
+                        "maxTemp": 100,
+                        "offset": -1,
+                        "level": 50
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "286AD6940000003F",
+                        "minTemp": 0,
+                        "maxTemp": 100,
+                        "offset": -1.5,
+                        "level": 25
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "286E068300000003",
+                        "minTemp": 0,
+                        "maxTemp": 100,
+                        "offset": -1.5,
+                        "level": 75
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "287EDB9400000054",
+                        "minTemp": 0,
+                        "maxTemp": 100,
                         "offset": -1.5,
                         "level": 0
+                    },
+                    {
+                        "model": "DS12B20",
+                        "position": "body",
+                        "id": "28C6D394000000CC",
+                        "minTemp": 0,
+                        "maxTemp": 100,
+                        "offset": -1.5,
+                        "level": 100
                     }
                 ],
                 "pumps": [
                     {
-                        "name": "mainActive",
+                        "name": "mainCharge",
                         "model": "ferro",
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "PWM",
-                        "IOnumber": 4,
+                        "IOnumber": 9,
                         "pid": {
                             "enabled": true,
-                            "p": 0.1,
-                            "i": 1,
-                            "d": 0.00,
+                            "p": -0.6,
+                            "i": -0.1,
+                            "d": 0,
                             "tempSensorId": "2832B643D42F2A25",
-                            "setPoint": 60.0
+                            "setPoint": 45
                         }
                     },
                     {
-                        "name": "main",
+                        "name": "mainCharge_IO",
+                        "model": "ferro",
+                        "maxControlSig": 100,
+                        "minControlSig": 0,
+                        "workingMode": "ON/OFF",
+                        "IOnumber": 4
+                    },
+                    {
+                        "name": "mainDischarge",
                         "model": "ferro",
                         "maxControlSig": 100,
                         "minControlSig": 0,
                         "workingMode": "PWM",
-                        "IOnumber": 3,
+                        "IOnumber": 8,
                         "dischargepump": true,
                         "pid": {
                             "enabled": true,
                             "p": 0.1,
                             "i": 1,
-                            "d": 0.0,
+                            "d": 0,
                             "tempSensorId": "2832B643D42F2A25",
-                            "setPoint": 60.0
+                            "setPoint": 60
                         }
+                    },
+                    {
+                        "name": "mainDischarge_IO",
+                        "model": "ferro",
+                        "maxControlSig": 100,
+                        "minControlSig": 0,
+                        "workingMode": "ON/OFF",
+                        "dischargepump": true,
+                        "IOnumber": 3
                     }
                 ]
             }

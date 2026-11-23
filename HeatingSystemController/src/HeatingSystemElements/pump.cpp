@@ -135,7 +135,7 @@ void Pump::enable()
         pid_c.setEnabled(true, tempValue);
     }
 }
-void Pump::disable(bool skipPidPump)
+void Pump::disable()
 {
     active = false;
 
@@ -143,10 +143,9 @@ void Pump::disable(bool skipPidPump)
     {
         setControlSignal(0);
     }
-    if (!skipPidPump && workingMode == PumpWorkingMode::PWM)
+    if (workingMode == PumpWorkingMode::PWM)
     {
         float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
         pid_c.setEnabled(false, tempValue);
-        controlSignal = 0;
     }
 }

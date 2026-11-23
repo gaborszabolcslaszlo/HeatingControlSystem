@@ -10,32 +10,73 @@ KAZAN = "Kazan"
 PUFFER = "Puffer950l"
 RADIATOR = "PadloKozos"
 
-KAZAN_BODY = "28CC526B000000000EE"
-KAZAN_TOUR = "2881506B00000000052"
+KAZAN_BODY = "28CC526B000000EE"
+KAZAN_TOUR = "2881506B00000052"
 KAZAN_RETOUR = "2832B643D42F2A25"
-PUFFER_TOUR = "28000B96A00000000029"
-PUFFER_BODY = "2814576B00000000059"
-PUFFER_BODY_TOP = "286AD6940000000003F"
-PUFFER_BODY_MIDDLE = "286E00683000000000003"
-PUFFER_BODY_BOTTOM = "287EDB9400000000054"
-PUFFER_RETOUR = "28899B43D44400637"
+PUFFER_TOUR = "28000B96A00000029"
+PUFFER_BODY = "2814576B00000059"
+PUFFER_BODY_TOP = "286AD6940000003F"
+PUFFER_BODY_MIDDLE = "286E068300000003"
+PUFFER_BODY_BOTTOM = "287EDB9400000054"
+PUFFER_BODY_TOP_LEVEL = "28C6D394000000CC"
+PUFFER_RETOUR = "2826DE9400000009"
 STATE_CHECK_INTERVAL_SECONDS = float(os.getenv("STATE_SETTLE_SECONDS", "3"))
 
 
 def _assert_pump_outputs(
-    state: dict, *, active: tuple[str, ...] = (), inactive: tuple[str, ...] = ()
+    state: dict,
+    *,
+    active: tuple[str, ...] = (),
+    inactive: tuple[str, ...] = (),
+    read_state=None,
 ) -> None:
     """Ellenőrzi a pumpa-IO-k tényleges kimeneti értékét a /state válaszban."""
+    if read_state is not None and not _pump_outputs_are_valid(
+        state, active=active, inactive=inactive
+    ):
+        state = read_state(retry=True)
+
     for io_number in active:
         output = state[io_number]
-        assert isinstance(output, (int, float))
-        assert output > 0, f"IO{io_number} pumpa kimenete nem aktív: {output}"
-        assert output <= 100
+        passed = isinstance(output, (int, float)) and 0 < output <= 100
+        _record_pump_assertion(read_state, io_number, "aktív (> 0)", output, passed)
+        assert passed, f"IO{io_number} pumpa kimenete nem aktív: {output}"
 
     for io_number in inactive:
         output = state[io_number]
-        assert output == pytest.approx(0, abs=1.0), (
+        passed = output == pytest.approx(0, abs=1.0)
+        _record_pump_assertion(read_state, io_number, "inaktív (= 0)", output, passed)
+        assert passed, (
             f"IO{io_number} pumpa kimenete nem nulla: {output}"
+        )
+
+
+def _pump_outputs_are_valid(
+    state: dict,
+    *,
+    active: tuple[str, ...],
+    inactive: tuple[str, ...],
+) -> bool:
+    return all(
+        isinstance(state.get(io_number), (int, float))
+        and 0 < state[io_number] <= 100
+        for io_number in active
+    ) and all(
+        state.get(io_number) == pytest.approx(0, abs=1.0)
+        for io_number in inactive
+    )
+
+
+def _record_pump_assertion(read_state, io_number, expected, actual, passed) -> None:
+    session = getattr(read_state, "_trace_session", None)
+    if session is not None:
+        session.record_assertion(
+            f"IO{io_number} pumpa kimenetének ellenőrzése",
+            expected,
+            actual,
+            passed,
+            element=f"IO{io_number}",
+            trace_index=getattr(read_state, "_last_trace_index", None),
         )
 
 
@@ -45,6 +86,7 @@ def _puffer_body_values(value: float) -> dict[str, float]:
         PUFFER_BODY_TOP: value,
         PUFFER_BODY_MIDDLE: value,
         PUFFER_BODY_BOTTOM: value,
+        PUFFER_BODY_TOP_LEVEL: value,
     }
 
 
@@ -159,7 +201,7 @@ def test_kazan_state_transition_sequence(
         set_sensor_values,
         **{KAZAN_BODY: 20, KAZAN_TOUR: 20, KAZAN_RETOUR: 20},
     )
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "COOLD",
@@ -169,14 +211,15 @@ def test_kazan_state_transition_sequence(
         },
     )
     _assert_pump_outputs(
-        read_state(retry=True), inactive=("3", "4", "5", "6", "7")
+        state, inactive=("3", "4", "5", "6", "7"),
+        read_state=read_state,
     )
 
     _set_temperatures(
         set_sensor_values,
         **{KAZAN_BODY: 45, KAZAN_TOUR: 45, KAZAN_RETOUR: 40},
     )
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "RETOUR_PROTECTION",
@@ -186,11 +229,12 @@ def test_kazan_state_transition_sequence(
         },
     )
     _assert_pump_outputs(
-        read_state(retry=True), active=("7",), inactive=("3", "4", "5", "6")
+        state, active=("7",), inactive=("3", "4", "5", "6"),
+        read_state=read_state,
     )
 
     _set_temperatures(set_sensor_values, **{KAZAN_RETOUR: 50})
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "HEATING",
@@ -200,11 +244,12 @@ def test_kazan_state_transition_sequence(
         },
     )
     _assert_pump_outputs(
-        read_state(retry=True), active=("4", "7"), inactive=("3", "5", "6")
+        state, active=("4", "7"), inactive=("3", "5", "6"),
+        read_state=read_state,
     )
 
     _set_temperatures(set_sensor_values, **{KAZAN_BODY: 85, KAZAN_TOUR: 85})
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "OVERHEATED",
@@ -214,11 +259,12 @@ def test_kazan_state_transition_sequence(
         },
     )
     _assert_pump_outputs(
-        read_state(retry=True), active=("4", "7"), inactive=("3", "5", "6")
+        state, active=("4", "7"), inactive=("3", "5", "6"),
+        read_state=read_state,
     )
 
     _set_temperatures(set_sensor_values, **{KAZAN_BODY: 70, KAZAN_TOUR: 70})
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "HEATING",
@@ -228,7 +274,8 @@ def test_kazan_state_transition_sequence(
         },
     )
     _assert_pump_outputs(
-        read_state(retry=True), active=("4", "7"), inactive=("3", "5", "6")
+        state, active=("4", "7"), inactive=("3", "5", "6"),
+        read_state=read_state,
     )
 
 
@@ -239,7 +286,7 @@ def test_radiator_waiting_receiving_and_standby(
     """Radiátor: STANDBY -> WAITING_FOR_HEATING -> RECEIVING_HEATING -> STANDBY."""
     _set_baseline_temperatures(set_sensor_values)
     _request_radiator_heat(api_session, api_base_url, False)
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "COOLD",
@@ -271,7 +318,7 @@ def test_radiator_waiting_receiving_and_standby(
             PUFFER_RETOUR: 45,
         },
     )
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "HEATING",
@@ -281,11 +328,12 @@ def test_radiator_waiting_receiving_and_standby(
         },
     )
     _assert_pump_outputs(
-        read_state(retry=True), active=("5", "6", "4", "7"), inactive=("3",)
+        state, active=("5", "6", "4", "7"), inactive=("3",),
+        read_state=read_state,
     )
 
     _request_radiator_heat(api_session, api_base_url, False)
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "HEATING",
@@ -314,7 +362,7 @@ def test_puffer_charge_discharge_and_standby(
             PUFFER_RETOUR: 20,
         },
     )
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "HEATING",
@@ -322,6 +370,10 @@ def test_puffer_charge_discharge_and_standby(
             RADIATOR: "STANDBY",
             "HeatingController": "CHARGING_BUFFER",
         },
+    )
+    _assert_pump_outputs(
+        state, active=("4",), inactive=("3",),
+        read_state=read_state,
     )
 
     _request_radiator_heat(api_session, api_base_url, True)
@@ -334,7 +386,7 @@ def test_puffer_charge_discharge_and_standby(
             **_puffer_body_values(55),
         },
     )
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "COOLD",
@@ -343,9 +395,13 @@ def test_puffer_charge_discharge_and_standby(
             "HeatingController": "DISCHARGING_BUFFER_AND_HEATING",
         },
     )
+    _assert_pump_outputs(
+        state, active=("3",), inactive=("4",),
+        read_state=read_state,
+    )
 
     _request_radiator_heat(api_session, api_base_url, False)
-    _wait_for_states(
+    state = _wait_for_states(
         read_state,
         {
             KAZAN: "COOLD",
@@ -353,4 +409,7 @@ def test_puffer_charge_discharge_and_standby(
             RADIATOR: "STANDBY",
             "HeatingController": "STANDBY",
         },
+    )
+    _assert_pump_outputs(
+        state, inactive=("3", "4"), read_state=read_state
     )

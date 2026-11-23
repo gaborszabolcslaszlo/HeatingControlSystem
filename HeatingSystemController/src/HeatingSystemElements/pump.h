@@ -53,7 +53,7 @@ public:
 
     void enable();
 
-    void disable(bool skipPidPump = true);
+    void disable();
 
 private:
     int controlSignal = 0;

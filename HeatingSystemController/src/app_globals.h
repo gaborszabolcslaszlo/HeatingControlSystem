@@ -14,7 +14,9 @@
 
 constexpr size_t STATE_JSON_DOCUMENT_SIZE = 2048;
 constexpr size_t STATE_JSON_RESPONSE_SIZE = 1024;
-constexpr size_t MAX_IO_ID = 8;
+// A PCA9685 16 csatornát kezel: 0..15. A konfigurációban használt
+// 1..15 tartományt ezért az alkalmazásnak is teljesen támogatnia kell.
+constexpr size_t MAX_IO_ID = 15;
 
 extern HeatingSystem *hs;
 extern Ticker timer;

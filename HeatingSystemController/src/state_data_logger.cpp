@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
+#include <memory>
 
 StateDataLogger stateDataLogger;
 constexpr float StateDataLogger::TEMPERATURE_CHANGE_THRESHOLD_C;
@@ -20,6 +22,51 @@ constexpr uint8_t RECORD_SCHEMA = 1;
 constexpr uint8_t RECORD_SAMPLE = 2;
 constexpr uint8_t SAMPLE_ABSOLUTE_TIMESTAMP = 0;
 constexpr uint8_t SAMPLE_DELTA_OF_DELTA = 1;
+constexpr size_t MAX_STATE_LOG_FRAME_SIZE = 4096U;
+constexpr size_t MAX_STATE_LOG_FILE_SIZE = 64U * 1024U;
+constexpr size_t MAX_STATE_HISTORY_RESPONSE_SIZE = 48U * 1024U;
+constexpr size_t STATE_LOG_MIN_FREE_BYTES = 64U * 1024U;
+
+String stateLogSegmentName(const String &date, unsigned int segment)
+{
+    if (segment == 0)
+        return String("/state_") + date + ".bin";
+    char suffix[12];
+    snprintf(suffix, sizeof(suffix), "_%02u.bin", segment);
+    return String("/state_") + date + suffix;
+}
+
+void removeOldStateLogs(const String &protectedFile)
+{
+#ifdef ESP32
+    const size_t total = SPIFFS.totalBytes();
+    while (total > 0 && total - SPIFFS.usedBytes() < STATE_LOG_MIN_FREE_BYTES)
+    {
+        std::vector<String> candidates;
+        File root = SPIFFS.open("/");
+        File entry = root.openNextFile();
+        while (entry)
+        {
+            const String name = entry.name();
+            if ((name.startsWith("/state_") || name.startsWith("state_")) &&
+                name.endsWith(".bin") && name != protectedFile)
+                candidates.push_back(name.startsWith("/") ? name : String("/") + name);
+            entry = root.openNextFile();
+        }
+        if (candidates.empty())
+            break;
+        std::sort(candidates.begin(), candidates.end());
+        const String oldest = candidates.front();
+        File oldFile = SPIFFS.open(oldest, "r");
+        const size_t oldSize = oldFile ? oldFile.size() : 0;
+        oldFile.close();
+        if (!SPIFFS.remove(oldest))
+            break;
+        logWarn("Regi state history torolve: %s (%u byte)\n",
+                oldest.c_str(), static_cast<unsigned>(oldSize));
+    }
+#endif
+}
 
 void appendFrame(File &file, uint8_t type, const std::vector<uint8_t> &payload)
 {
@@ -35,7 +82,9 @@ void appendFrame(File &file, uint8_t type, const std::vector<uint8_t> &payload)
     {
         file.write(payload.data(), length);
     }
-    file.flush();
+    // A hívó azonnal bezárja a fájlt, ami elvégzi a szükséges lezárást is.
+    // A külön flush minden mintánál jelentősen növelheti a loopTask blokkolási
+    // idejét, különösen nagy vagy töredezett SPIFFS-fájl esetén.
 }
 
 uint16_t readU16(const uint8_t *data)
@@ -221,13 +270,58 @@ void StateDataLogger::collectFields()
 void StateDataLogger::ensureFile()
 {
     const String date = currentDate();
-    const String fileName = fileNameForDate(date);
+    const String datePrefix = String("/state_") + date;
+
+    // Normál mintavételnél az aktív szegmens már ismert. Ne szkenneljük végig
+    // minden loop-ciklusban az összes history fájlt, mert sok 60 KiB-os
+    // szegmensnél a SPIFFS műveletei blokkolhatják a loopTask watchdogját.
+    if (!activeFile.isEmpty() && activeFile.startsWith(datePrefix))
+    {
+        File current = SPIFFS.open(activeFile, "r");
+        if (current)
+        {
+            const size_t size = current.size();
+            current.close();
+            if (size < MAX_STATE_LOG_FILE_SIZE - MAX_STATE_LOG_FRAME_SIZE)
+                return;
+        }
+    }
+
+    // Csak akkor jutunk ide, ha dátumváltás történt, az aktív fájl hiányzik,
+    // vagy a jelenlegi szegmens elérte a rotációs küszöböt.
+    String fileName;
+    unsigned int segment = 0;
+    while (true)
+    {
+        fileName = stateLogSegmentName(date, segment);
+        if (!SPIFFS.exists(fileName))
+            break;
+        File existing = SPIFFS.open(fileName, "r");
+        const size_t size = existing ? existing.size() : MAX_STATE_LOG_FILE_SIZE;
+        existing.close();
+        if (size < MAX_STATE_LOG_FILE_SIZE - MAX_STATE_LOG_FRAME_SIZE)
+            break;
+        ++segment;
+    }
+
     if (activeFile == fileName && SPIFFS.exists(fileName))
     {
         return;
     }
 
+    const bool fileChanged = activeFile != fileName;
     activeFile = fileName;
+    if (fileChanged)
+    {
+        writtenSchemaSignature.clear();
+        previousValues.clear();
+        // A rotált szegmens önálló history-fájl, ezért az első mintának
+        // abszolút időbélyeggel kell indulnia, nem az előző fájl deltaidejével.
+        previousTimestamp = 0;
+        previousDelta = 0;
+        hasTimestamp = false;
+    }
+    removeOldStateLogs(activeFile);
     File file = SPIFFS.open(activeFile, "a");
     if (!file)
     {
@@ -321,14 +415,26 @@ void StateDataLogger::capture()
 {
     if (!started || millis() - lastCaptureMs < MIN_CAPTURE_INTERVAL_MS)
         return;
+
+    // A raw history letöltés AsyncTCP feladatból olvassa a SPIFFS-fájlt.
+    // Ne nyissunk közben írásra ugyanabba a fájlba a loop taskból.
+    if (rawDownloadActive)
+    {
+        if (millis() - rawDownloadStartedMs < 60000UL)
+            return;
+        rawDownloadActive = false;
+    }
+
     lastCaptureMs = millis();
 
     const String date = currentDate();
-    const String fileName = fileNameForDate(date);
-    if (activeFile != fileName)
+    const String datePrefix = String("/state_") + date;
+    // Az aktív fájl lehet /state_YYYY-MM-DD_01.bin is. Csak valódi
+    // dátumváltáskor nullázzuk a history állapotát; a szegmensváltást az
+    // ensureFile() kezeli.
+    if (activeFile.isEmpty() || !activeFile.startsWith(datePrefix))
     {
         resetHistory();
-        activeFile = fileName;
     }
 
     collectFields();
@@ -399,6 +505,113 @@ const char *StateDataLogger::stateName(uint8_t code)
 
 void StateDataLogger::handleGet()
 {
+    try
+    {
+        handleGetImpl();
+    }
+    catch (const std::exception &error)
+    {
+        logError("State history feldolgozasi hiba: %s\n", error.what());
+        server.send(500, "application/json", "{\"error\":\"Invalid or too large state history record\"}");
+    }
+    catch (...)
+    {
+        logError("Ismeretlen state history feldolgozasi hiba.\n");
+        server.send(500, "application/json", "{\"error\":\"State history processing failed\"}");
+    }
+}
+
+void StateDataLogger::handleRawGet()
+{
+    String date = server.hasArg("date") ? server.arg("date") : currentDate();
+    String fileName;
+    if (server.hasArg("name"))
+    {
+        fileName = server.arg("name");
+        const bool validPrefix = fileName.startsWith("/state_");
+        const bool validSuffix = fileName.endsWith(".bin");
+        const bool validPath = fileName.indexOf("/") == 0 && fileName.indexOf("/", 1) < 0;
+        if (!validPrefix || !validSuffix || !validPath || fileName.length() < 21)
+        {
+            server.send(400, "application/json", "{\"error\":\"invalid state history file name\"}");
+            return;
+        }
+        date = fileName.substring(7, 17);
+    }
+
+    if (!validDate(date))
+    {
+        server.send(400, "application/json", "{\"error\":\"date must be YYYY-MM-DD\"}");
+        return;
+    }
+
+    if (fileName.isEmpty())
+        fileName = fileNameForDate(date);
+    File file = SPIFFS.open(fileName, "r");
+    if (!file)
+    {
+        const String error = String("{\"error\":\"state log not found\",\"file\":\"") + fileName + "\"}";
+        server.send(404, "application/json", error);
+        return;
+    }
+
+    server.sendHeader("Cache-Control", "no-store");
+#ifdef ESP32
+    struct RawDownloadContext
+    {
+        File file;
+        StateDataLogger *logger = nullptr;
+    };
+    auto context = std::make_shared<RawDownloadContext>();
+    // A callback-owned independent handle is required. Sharing the handler's
+    // File object and then destroying it can invalidate the async response.
+    context->file = SPIFFS.open(fileName, "r");
+    context->logger = this;
+    file.close();
+    if (!context->file)
+    {
+        server.send(500, "application/json", "{\"error\":\"failed to open raw state history\"}");
+        return;
+    }
+    rawDownloadActive = true;
+    rawDownloadStartedMs = millis();
+    AsyncWebServerResponse *response = server.currentRequest()->beginChunkedResponse(
+        "application/octet-stream",
+        [context](uint8_t *buffer, size_t maxLen, size_t) -> size_t
+        {
+            if (!context->file)
+            {
+                context->logger->rawDownloadActive = false;
+                return 0;
+            }
+            const size_t bytesRead = context->file.read(buffer, maxLen);
+            if (bytesRead == 0)
+            {
+                context->file.close();
+                context->logger->rawDownloadActive = false;
+            }
+#ifdef ESP32
+            else
+            {
+                // A chunked response callback az async_tcp taskban fut. A
+                // SPIFFS olvasás után adjuk vissza a CPU-t, különben egy nagyobb
+                // bináris fájl letöltése task watchdog resetet okozhat.
+                delay(1);
+            }
+#endif
+            return bytesRead;
+        });
+    response->addHeader("Content-Disposition", String("attachment; filename=state_") + date + ".bin");
+    server.sendResponse(response);
+#else
+    server.sendHeader("Content-Disposition", String("attachment; filename=state_") + date + ".bin");
+    server.streamFile(file, "application/octet-stream");
+    file.close();
+#endif
+}
+
+void StateDataLogger::handleGetImpl()
+{
     // Védelmi ág arra az esetre, ha egy webszerver-implementáció a rövidebb
     // /state-history route-ot választaná a /state-history/files helyett.
     if (server.uri() == "/state-history/files")
@@ -423,12 +636,47 @@ void StateDataLogger::handleGet()
         return;
     }
 
+#ifdef ESP32
+    // A handler is invoked from the AsyncTCP task. Do not scan a large history
+    // file there: even a bounded response would still block that task while
+    // parsing and writing the temporary response file.
+    if (static_cast<size_t>(file.size()) > MAX_STATE_LOG_FILE_SIZE)
+    {
+        const size_t fileSize = static_cast<size_t>(file.size());
+        file.close();
+        logWarn("State history tul nagy: %u byte\n", static_cast<unsigned>(fileSize));
+        server.send(413, "application/json", "{\"error\":\"state history too large\"}");
+        return;
+    }
+#endif
+
+#ifdef ESP32
+    // A teljes JSON-válasz nem kerülhet a heapre: nagy Plot3 history esetén ez
+    // std::bad_alloc-ot okoz. Előbb SPIFFS-fájlba írjuk, majd az AsyncWebServer
+    // fájlstreamként küldi ki.
+    AsyncWebServerRequest *request = server.currentRequest();
+    const String responseFileName = "/.state-history-response.json";
+    if (SPIFFS.exists(responseFileName))
+        SPIFFS.remove(responseFileName);
+    File responseFile = SPIFFS.open(responseFileName, "w");
+    if (request == nullptr || !responseFile)
+    {
+        file.close();
+        server.send(500, "application/json", "{\"error\":\"Failed to create history response\"}");
+        return;
+    }
+    responseFile.print("[");
+#else
     // send() only starts the response; sendContent() appends the complete JSON
     // stream. Passing '[' as the body would advertise a one-byte response on
     // some ESP8266 WebServer versions and Postman would show an empty body.
     server.send(200, "application/json", "");
     server.sendContent("[");
+#endif
     bool firstSample = true;
+    size_t samplesProcessed = 0;
+    size_t framesProcessed = 0;
+    bool responseLimitReached = false;
     std::map<uint16_t, std::string> keyById;
     std::map<uint16_t, ValueType> typeById;
     uint32_t timestamp = 0;
@@ -440,7 +688,30 @@ void StateDataLogger::handleGet()
     if (headerBytes != sizeof(header))
     {
         file.close();
+#ifdef ESP32
+        responseFile.print("]");
+        responseFile.close();
+        struct HistoryChunkContext
+        {
+            File file;
+        };
+        auto context = std::make_shared<HistoryChunkContext>();
+        context->file = SPIFFS.open(responseFileName, "r");
+        AsyncWebServerResponse *response = request->beginChunkedResponse(
+            "application/json",
+            [context](uint8_t *buffer, size_t maxLen, size_t) -> size_t
+            {
+                if (!context->file)
+                    return 0;
+                const size_t bytesRead = context->file.read(buffer, maxLen);
+                if (bytesRead == 0)
+                    context->file.close();
+                return bytesRead;
+            });
+        server.sendResponse(response);
+#else
         server.sendContent("]");
+#endif
         return;
     }
     // Older firmware versions could write the first schema record at offset 0
@@ -458,6 +729,12 @@ void StateDataLogger::handleGet()
         const uint8_t recordType = frameHeader[0];
         const uint16_t length = readU16(frameHeader + 1);
         const uint16_t expectedCrc = readU16(frameHeader + 3);
+        if (length > MAX_STATE_LOG_FRAME_SIZE ||
+            static_cast<size_t>(file.available()) < length)
+        {
+            logWarn("State history hibas frame meret: %u\n", length);
+            break;
+        }
         std::vector<uint8_t> payload(length);
         if (file.read(payload.data(), length) != length || crc16(payload.data(), length) != expectedCrc)
             break;
@@ -548,11 +825,65 @@ void StateDataLogger::handleGet()
                 }
             }
             sampleJson += "}}";
+#ifdef ESP32
+            if (responseFile.size() + sampleJson.length() + 1U > MAX_STATE_HISTORY_RESPONSE_SIZE)
+            {
+                responseLimitReached = true;
+                break;
+            }
+            responseFile.print(sampleJson);
+#else
             server.sendContent(sampleJson);
+#endif
+            ++samplesProcessed;
+#ifdef ESP32
+            if ((samplesProcessed % 16U) == 0U)
+                delay(1);
+#endif
         }
+#ifdef ESP32
+        // A history file can contain many schema/invalid frames as well as
+        // samples. Yield on every frame so the ESP32 loop task and TCP stack
+        // can reset their watchdogs while the response file is generated.
+        ++framesProcessed;
+        if ((framesProcessed % 4U) == 0U)
+            delay(1);
+#endif
+        if (responseLimitReached)
+            break;
     }
     file.close();
+#ifdef ESP32
+    if (responseLimitReached)
+        logWarn("State history valasz csonkolva: elerte a %u byte-os limitet.\n",
+                static_cast<unsigned>(MAX_STATE_HISTORY_RESPONSE_SIZE));
+    responseFile.print("]");
+    responseFile.close();
+    struct HistoryChunkContext
+    {
+        File file;
+    };
+    auto context = std::make_shared<HistoryChunkContext>();
+    context->file = SPIFFS.open(responseFileName, "r");
+    AsyncWebServerResponse *response = request->beginChunkedResponse(
+        "application/json",
+        [context](uint8_t *buffer, size_t maxLen, size_t) -> size_t
+        {
+            if (!context->file)
+                return 0;
+            const size_t bytesRead = context->file.read(buffer, maxLen);
+            if (bytesRead == 0)
+                context->file.close();
+#ifdef ESP32
+            else
+                delay(1);
+#endif
+            return bytesRead;
+        });
+    server.sendResponse(response);
+#else
     server.sendContent("]");
+#endif
 }
 
 void StateDataLogger::handleDelete()

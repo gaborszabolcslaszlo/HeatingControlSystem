@@ -29,6 +29,15 @@ void handleWebUserInterfaceRequest()
 {
   String path = server.uri(); // pl. "/" vagy "/style.css"
 
+  // A böngésző automatikusan lekéri a favicon-t. Ha nincs külön ikon a
+  // SPIFFS-en, ne próbáljuk a teljes webes fájlkezelési útvonalon kiszolgálni,
+  // mert ez felesleges AsyncWebServer/SPIFFS munkát okoz.
+  if (path == "/favicon.ico")
+  {
+    server.send(204, "image/x-icon", "");
+    return;
+  }
+
   // Ha "/" érkezik, az index.html legyen
   if (path == "/")
   {

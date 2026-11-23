@@ -20,7 +20,8 @@ python -m pip install -r requirements-test.txt
 Run against the controller over HTTP on port 80:
 
 ```bash
-HEATING_CONTROLLER_URL=http://192.168.0.106 \
+
+
 python -m pytest -m integration -v
 ```
 
@@ -205,10 +206,16 @@ python -m pytest \
   -m integration -vv -s
 ```
 
+HEATING_CONTROLLER_URL=http://192.168.0.107 \
+python -m pytest \
+  tests/test_api.py::test_radiator_waiting_receiving_and_standby \
+  -m integration -vv -s
+
+
 A két trendteszt együttes futtatása:
 
 ```bash
-HEATING_CONTROLLER_URL=http://192.168.0.106 \
+HEATING_CONTROLLER_URL=http://192.168.4.1 \
 python -m pytest \
   tests/test_api.py::test_puffer_pid_output_follows_temperature_error \
   tests/test_api.py::test_puffer_discharge_uses_only_discharge_pid_pump \
@@ -309,3 +316,25 @@ deactivate
 
 The test environment uses the sensor IDs from `config/config.json`; it does not
 duplicate those IDs in the test code.
+
+The history rotation test is intentionally slow because the firmware writes at
+most one sample per second. Run it explicitly with:
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.116 \
+STATE_HISTORY_ROTATION_TIMEOUT_SECONDS=1800 \
+python -m pytest -m 'integration and slow' -vv -s tests/test_api.py::test_state_history_rotates_and_raw_files_are_downloadable
+```
+
+The timeout and sample interval can be changed with
+`STATE_HISTORY_ROTATION_TIMEOUT_SECONDS` and
+`STATE_HISTORY_SAMPLE_INTERVAL_SECONDS`.
+
+
+
+HEATING_CONTROLLER_URL=http://192.168.0.116 \
+python -m pytest -m integration -vv \
+  --api-trace=reports/api-trace.json \
+  --api-report=reports/api-report.md \
+  --api-html-report=reports/api-report.html \
+  --junitxml=reports/pytest-results.xml

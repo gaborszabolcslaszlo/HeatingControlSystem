@@ -82,12 +82,6 @@ public:
     {
         size_t current = index(currentState);
 
-        // Aktuális állapot végrehajtása
-        if (states[current] != nullptr)
-        {
-            (owner->*states[current])();
-        }
-
         // Átmenetek ellenőrzése
         for (size_t i = 0; i < N; i++)
         {
@@ -107,6 +101,16 @@ public:
                            getStateName());
                 break;
             }
+        }
+
+        // Az átmenet után mindig az aktuális (új) állapot művelete fusson.
+        // Így az állapotváltáskor a hozzá tartozó pumpák és egyéb kimenetek
+        // ugyanabban a ciklusban frissülnek, nem maradnak egy ciklusra az
+        // előző állapot értékein.
+        const size_t activeState = index(currentState);
+        if (states[activeState] != nullptr)
+        {
+            (owner->*states[activeState])();
         }
     }
 

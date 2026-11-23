@@ -50,6 +50,7 @@ String getFormattedDate();
 
 void createLogFile();
 void writeLogMessage(const char *format, ...);
+void writeGreenLogMessage(const char *format, ...);
 void flushLogBuffer(bool force = false);
 
 #if DISABLE_APPLICATION_LOGGING
@@ -73,6 +74,20 @@ void flushLogBuffer(bool force = false);
 #define logInfo(format, ...) LOG_WRITE(LOG_LEVEL_INFO, format, ##__VA_ARGS__)
 #define logDebug(format, ...) LOG_WRITE(LOG_LEVEL_DEBUG, format, ##__VA_ARGS__)
 
+#if DISABLE_APPLICATION_LOGGING
+#define logGreen(...) \
+    do                \
+    {                 \
+    } while (0)
+#else
+#define logGreen(format, ...)                         \
+    do                                                \
+    {                                                 \
+        if (LOG_LEVEL_INFO <= APPLICATION_LOG_LEVEL) \
+            writeGreenLogMessage(format, ##__VA_ARGS__); \
+    } while (0)
+#endif
+
 // Kompatibilitás a meglévő hívásokkal: ezek INFO szintű üzenetek.
 #define logMessage(format, ...) logInfo(format, ##__VA_ARGS__)
 
@@ -89,6 +104,7 @@ void handleLogs();
     } while (0)
 #else
 void logMessage(const char *format, ...);
+#define logGreen(format, ...) logMessage(format, ##__VA_ARGS__)
 #endif
 
 #endif

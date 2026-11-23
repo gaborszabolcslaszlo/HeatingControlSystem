@@ -15,8 +15,8 @@ _CURRENT_TEST: str | None = None
 _TEST_CASES: dict[str, dict] = {}
 _TEST_RESULTS: dict[str, str] = {}
 _TEST_FAILURES: dict[str, str] = {}
-STATE_SETTLE_SECONDS = float(os.getenv("STATE_SETTLE_SECONDS", "3"))
-API_REQUEST_RETRIES = 2
+STATE_SETTLE_SECONDS = float(os.getenv("STATE_SETTLE_SECONDS", "5"))
+API_REQUEST_RETRIES = 4
 
 
 class TraceSession(requests.Session):
@@ -367,6 +367,7 @@ def _render_json_value(
     path: tuple[str, ...],
     expected_states: dict[str, dict],
     expected_values: dict[str, object],
+    expected_io: dict[str, dict],
     level: int = 0,
 ) -> str:
     indent = "  " * level
@@ -377,7 +378,8 @@ def _render_json_value(
             key_html = f'<span class="json-key">&quot;{html.escape(str(key))}&quot;</span>'
             child_path = path + (str(key),)
             child_html = _render_json_value(
-                child, child_path, expected_states, expected_values, level + 1
+                child, child_path, expected_states, expected_values, expected_io,
+                level + 1
             )
             child_lines = child_html.splitlines()
             line = f"{'  ' * (level + 1)}{key_html}: {child_lines[0]}"
@@ -389,7 +391,15 @@ def _render_json_value(
             elif not path and str(key) in expected_values:
                 expected = expected_values[str(key)]
 
-            if expected is not None:
+            io_assertion = expected_io.get(str(key)) if not path else None
+            if io_assertion is not None:
+                css_class = "json-match" if io_assertion["passed"] else "json-mismatch"
+                title = "elvárt: " + str(io_assertion["expected"])
+                line = (
+                    f'<span class="{css_class}" title="{html.escape(title)}">'
+                    f"{line}</span>"
+                )
+            elif expected is not None:
                 css_class = "json-match" if child == expected else "json-mismatch"
                 title = "elvárt: " + str(expected)
                 line = (
@@ -406,11 +416,8 @@ def _render_json_value(
     if isinstance(value, list):
         items = [
             _render_json_value(
-                child,
-                path + (str(index),),
-                expected_states,
-                expected_values,
-                level + 1,
+                child, path + (str(index),), expected_states, expected_values,
+                expected_io, level + 1
             )
             for index, child in enumerate(value)
         ]
@@ -425,6 +432,14 @@ def _render_json_value(
     elif len(path) == 1 and path[0] in expected_values:
         expected = expected_values[path[0]]
 
+    io_assertion = expected_io.get(path[0]) if len(path) == 1 else None
+    if io_assertion is not None:
+        css_class = "json-match" if io_assertion["passed"] else "json-mismatch"
+        title = "elvárt: " + str(io_assertion["expected"])
+        return (
+            f'<span class="{css_class} json-value" title="{html.escape(title)}">'
+            f"{html.escape(text)}</span>"
+        )
     if expected is not None:
         css_class = "json-match" if value == expected else "json-mismatch"
         title = "elvárt: " + str(expected)
@@ -447,21 +462,34 @@ def _html_json_response_block(
         try:
             value = json.loads(body)
             expected_states = {}
+            expected_io = {}
             for assertion in assertions:
                 if assertion.get("element"):
-                    expected_states[assertion["element"]] = assertion
+                    element = assertion["element"]
+                    if str(element).startswith("IO"):
+                        expected_io[str(element)[2:]] = assertion
+                    else:
+                        expected_states[element] = assertion
                 for check in assertion.get("checks", []):
-                    expected_states[check["element"]] = check
+                    element = check["element"]
+                    if str(element).startswith("IO"):
+                        expected_io[str(element)[2:]] = check
+                    else:
+                        expected_states[element] = check
             rendered = _render_json_value(
-                value, (), expected_states, expected_values or {}
+                value, (), expected_states, expected_values or {}, expected_io
             )
             missing_lines = []
             if isinstance(value, dict):
                 state_checks = []
                 for assertion in assertions:
-                    if assertion.get("element"):
+                    if assertion.get("element") and not str(assertion["element"]).startswith("IO"):
                         state_checks.append(assertion)
-                    state_checks.extend(assertion.get("checks", []))
+                    state_checks.extend(
+                        check
+                        for check in assertion.get("checks", [])
+                        if not str(check["element"]).startswith("IO")
+                    )
                 for assertion in state_checks:
                     element = assertion["element"]
                     actual_element = value.get(element)
@@ -518,6 +546,55 @@ def _expected_sensor_values(
     return {}
 
 
+def _response_assertions(
+    session: TraceSession, test_case: str, trace_index: int
+) -> list[dict]:
+    """Return assertions for this response, including a preceding state poll."""
+    direct = [
+        assertion
+        for assertion in session.assertions
+        if assertion.get("testCase") == test_case
+        and assertion.get("traceIndex") == trace_index
+    ]
+    if direct:
+        return direct
+
+    current = session.trace[trace_index]
+    current_request = current.get("request", {})
+    current_url = current_request.get("url", "").split("?", 1)[0].rstrip("/")
+    if current_request.get("method") != "GET" or not current_url.endswith("/state"):
+        return []
+
+    candidate_indexes = sorted(
+        {
+            assertion.get("traceIndex")
+            for assertion in session.assertions
+            if assertion.get("testCase") == test_case
+            and isinstance(assertion.get("traceIndex"), int)
+            and assertion["traceIndex"] > trace_index
+        }
+    )
+    for candidate_index in candidate_indexes:
+        between = session.trace[trace_index : candidate_index + 1]
+        if not all(
+            entry.get("testCase") == test_case
+            and entry.get("request", {}).get("method") == "GET"
+            and entry.get("request", {}).get("url", "")
+            .split("?", 1)[0]
+            .rstrip("/")
+            .endswith("/state")
+            for entry in between
+        ):
+            continue
+        return [
+            assertion
+            for assertion in session.assertions
+            if assertion.get("testCase") == test_case
+            and assertion.get("traceIndex") == candidate_index
+        ]
+    return []
+
+
 def _write_html_report(session: TraceSession, path_value: str) -> None:
     if not path_value:
         return
@@ -553,12 +630,9 @@ def _write_html_report(session: TraceSession, path_value: str) -> None:
                 for index, candidate in enumerate(session.trace)
                 if candidate is entry
             )
-            response_assertions = [
-                assertion
-                for assertion in session.assertions
-                if assertion.get("testCase") == test_case
-                and assertion.get("traceIndex") == trace_index
-            ]
+            response_assertions = _response_assertions(
+                session, test_case, trace_index
+            )
             request_data = entry["request"]
             request_headers = json.dumps(request_data["headers"], ensure_ascii=False)
             response_html = ""

@@ -23,6 +23,7 @@
 #endif
 #include "esp_routes.h"
 #include "state_data_logger.h"
+#include "system_health.h"
 
 const int max_attempts = 20;
 int attempt = 0;
@@ -75,9 +76,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 
 void onTimerISR()
 {
-  // Az állapotgép frissítése a timer ciklusában marad.
   heatingSystemUpdatePending = true;
   hs->update();
+  setHealthCondition(HEALTH_STATE_FAULT, hs->hasControllerFault());
+  bool overheated = false;
+  for (const auto *boiler : hs->kazan)
+    overheated |= boiler->getState() == Kazan::OVERHEATED;
+  setHealthCondition(HEALTH_OVERHEAT, overheated);
 }
 
 void printMemoryDiagnostics(const char *source)
@@ -113,6 +118,12 @@ void initializeSerialAndHardware()
   Serial.flush();
   pinMode(STATUS_LED_PIN, OUTPUT);
   digitalWrite(STATUS_LED_PIN, LOW);
+#if defined(HEALTH_YELLOW_PIN) && defined(HEALTH_RED_PIN)
+  digitalWrite(HEALTH_YELLOW_PIN, LOW);
+  digitalWrite(HEALTH_RED_PIN, LOW);
+  pinMode(HEALTH_YELLOW_PIN, OUTPUT);
+  pinMode(HEALTH_RED_PIN, OUTPUT);
+#endif
 #ifdef ESP32
   logInfo("[BOOT] ESP32 indulás\n");
 #else
@@ -122,8 +133,10 @@ void initializeSerialAndHardware()
 
 #ifndef TESTINGOVER_API
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.beginTransmission(0x41);
+  setHealthCondition(HEALTH_PWM_UNAVAILABLE, Wire.endTransmission() != 0);
   pwmController.setupSingleDevice(Wire, 0x41);
-  pwmController.setToServoFrequency();
+  pwmController.setToFrequency(1000);
   pwmController.setAllDevicesOutputsInverted();
   pwmController.setupOutputEnablePin(D0);
   pwmController.setOutputsHighWhenDisabled();
@@ -132,7 +145,7 @@ void initializeSerialAndHardware()
   logInfo("[TEST] PCA9685 inicializalas kihagyva; API teszt mod\n");
 #endif
 
-  for (int i = 1; i <= 8; i++)
+  for (int i = 1; i <= static_cast<int>(MAX_IO_ID); i++)
   {
     IOMap[i] = 0;
   }
@@ -260,10 +273,42 @@ void registerHttpRoutes()
   server.on("/state", HTTP_GET, hadleStateRequest);
   server.on("/setTemp", HTTP_POST, handleSetTemperatureTest);
   server.on("/deviceInfo", HTTP_GET, handleDeviceInfo);
+  server.on("/sensors/rescan", HTTP_GET, handleDsSensorRescan);
+  server.on("/sensors/rescan", HTTP_POST, handleDsSensorRescan);
+  server.on("/health", HTTP_GET, []()
+            {
+              const uint32_t flags = getHealthConditions();
+              String json = String("{\"color\":\"") + healthColor(flags) +
+                            "\",\"alarm\":" + ((flags & HEALTH_RED_MASK) ? "true" : "false") +
+                            ",\"conditions\":" + String(flags) + ",\"messages\":[";
+              struct HealthMessage { HealthCondition condition; const char *code; const char *message; };
+              const HealthMessage messages[] = {
+                  {HEALTH_SENSOR_UNAVAILABLE, "HEALTH_SENSOR_UNAVAILABLE", "Sensor unavailable or unreadable"},
+                  {HEALTH_PWM_UNAVAILABLE, "HEALTH_PWM_UNAVAILABLE", "PWM module unavailable"},
+                  {HEALTH_STATE_FAULT, "HEALTH_STATE_FAULT", "Heating controller is in fault state"},
+                  {HEALTH_SENSOR_RANGE, "HEALTH_SENSOR_RANGE", "Sensor reading outside configured range"},
+                  {HEALTH_SENSOR_SPIKE, "HEALTH_SENSOR_SPIKE", "Sensor reading spike detected"},
+                  {HEALTH_OVERHEAT, "HEALTH_OVERHEAT", "Boiler overheating detected"},
+                  {HEALTH_MEMORY_FRAGMENTED, "HEALTH_MEMORY_FRAGMENTED", "Memory is fragmented"},
+                  {HEALTH_FLASH_LOW, "HEALTH_FLASH_LOW", "Filesystem space is low or unavailable"}};
+              bool first = true;
+              for (const auto &item : messages)
+              {
+                if (!(flags & item.condition)) continue;
+                if (!first) json += ',';
+                first = false;
+                json += String("{\"code\":\"") + item.code + "\",\"message\":\"" + item.message + "\"}";
+              }
+              json += "]}";
+              server.send(200, "application/json", json); });
   server.on("/manualControlPumps", HTTP_POST, handleManualMode);
   server.on("/manualControlPumps", HTTP_GET, handleManualModeStatus);
   server.on("/state-history/files", HTTP_GET, []()
             { stateDataLogger.handleList(); });
+  server.on("/state-history/raw", HTTP_GET, []()
+            { stateDataLogger.handleRawGet(); });
+  server.on("/api/state-history/raw", HTTP_GET, []()
+            { stateDataLogger.handleRawGet(); });
   server.on("/state-history", HTTP_GET, []()
             { stateDataLogger.handleGet(); });
   server.on("/state-history", HTTP_DELETE, []()
@@ -319,6 +364,9 @@ void enableInitialHeatingDemand()
 
 void setup()
 {
+#ifndef TESTINGOVER_API
+  setHealthCondition(HEALTH_SENSOR_UNAVAILABLE, true);
+#endif
   initializeSerialAndHardware();
   initializeHeatingSystem();
   initializeNetwork();
@@ -332,6 +380,9 @@ void setup()
 
 void reconnectWifiIfNeeded()
 {
+  static unsigned long lastReconnectAttempt = 0;
+  constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000UL;
+
   if (config.wifiMode != "STA+AP" && config.wifiMode != "STA")
   {
     return;
@@ -339,15 +390,21 @@ void reconnectWifiIfNeeded()
 
   if (WiFi.status() == WL_CONNECTED)
   {
+    // Következő hálózati kiesésnél újra lehessen próbálkozni.
+    cntrWifiTry = 0;
     return;
   }
 
-  if (cntrWifiTry == 60)
+  const unsigned long now = millis();
+  if (now - lastReconnectAttempt < WIFI_RECONNECT_INTERVAL_MS)
   {
-    logInfo("Csatlakozás a WiFi-hez...\n");
-    WiFi.begin(config.wifiSSID, config.wifiPassword);
+    return;
   }
-  cntrWifiTry++;
+
+  lastReconnectAttempt = now;
+  ++cntrWifiTry;
+  logInfo("WiFi újracsatlakozási kísérlet: %d\n", cntrWifiTry);
+  WiFi.begin(config.wifiSSID, config.wifiPassword);
 }
 
 void handleHttpRequests()
@@ -410,6 +467,14 @@ void reportPeriodicMemoryUsage()
   {
     lastMemoryDiagnosticMs = millis();
     printMemoryDiagnostics("loop");
+#ifdef ESP32
+    const size_t freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    setHealthCondition(HEALTH_MEMORY_FRAGMENTED, freeHeap > 0 && largest < freeHeap / 2);
+    const size_t total = SPIFFS.totalBytes();
+    const size_t used = SPIFFS.usedBytes();
+    setHealthCondition(HEALTH_FLASH_LOW, total == 0 || used >= total || total - used < total / 10);
+#endif
   }
 }
 
@@ -444,7 +509,7 @@ void broadcastStateIfChanged()
 
   for (const auto &outerPair : HeatingElement::ElementsStateMap)
   {
-    JsonObject element = stateJsonDocument.createNestedObject(outerPair.first.c_str());
+    JsonObject element = stateJsonDocument[outerPair.first.c_str()].to<JsonObject>();
     for (const auto &innerPair : outerPair.second)
     {
       element[innerPair.first.c_str()] = innerPair.second.data();
@@ -463,6 +528,12 @@ void loop()
   reconnectWifiIfNeeded();
   handleHttpRequests();
   updateSensorsAndReportDuration();
+#if defined(HEALTH_YELLOW_PIN) && defined(HEALTH_RED_PIN)
+  const uint32_t healthConditions = getHealthConditions();
+  const bool red = (healthConditions & HEALTH_RED_MASK) != 0;
+  digitalWrite(HEALTH_RED_PIN, red ? HIGH : LOW);
+  digitalWrite(HEALTH_YELLOW_PIN, !red && (healthConditions & HEALTH_YELLOW_MASK) ? HIGH : LOW);
+#endif
   consumeHeatingSystemUpdateSignal();
   stateDataLogger.capture();
   flushLogBuffer();

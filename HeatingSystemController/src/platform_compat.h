@@ -112,7 +112,16 @@ public:
     responsePrepared = true;
   }
 
-  size_t streamFile(File &file, const String &contentType)
+  void sendResponse(AsyncWebServerResponse *response)
+  {
+    if (!request || !response || responseSent)
+      return;
+    applyHeaders(response);
+    request->send(response);
+    responseSent = true;
+  }
+
+  size_t streamFile(File &file, const String &contentType, bool download = false)
   {
     if (!request || !file)
       return 0;
@@ -120,15 +129,14 @@ public:
     if (!path.startsWith("/"))
       path = "/" + path;
 
-    AsyncWebServerResponse *response = request->beginResponse(SPIFFS, path, contentType);
+    AsyncWebServerResponse *response = request->beginResponse(SPIFFS, path, contentType, download);
     if (!response)
     {
       send(500, "text/plain", "Failed to create file response");
       return 0;
     }
     applyHeaders(response);
-    request->send(response);
-    responseSent = true;
+    sendResponse(response);
     return file.size();
   }
 
@@ -313,6 +321,12 @@ using ESP8266WebServer = AsyncCompatWebServer;
 #define D2 21 // Fejlesztőlap felirata: D21, PCA9685 I2C SDA
 #define D4 27 // Fejlesztőlap felirata: D27, DS18B20 OneWire adat
 #define STATUS_LED_PIN 2 // Fejlesztőlap felirata: D2, beépített kék LED
+#ifndef HEALTH_YELLOW_PIN
+#define HEALTH_YELLOW_PIN 25 // Fejlesztőlap felirata: D25, sárga hibajelzés
+#endif
+#ifndef HEALTH_RED_PIN
+#define HEALTH_RED_PIN 33 // Fejlesztőlap felirata: D33, piros hibajelzés / buzzer meghajtó
+#endif
 #define I2C_SDA_PIN D2
 #define I2C_SCL_PIN D1
 #define ONE_WIRE_BUS_PIN D4
