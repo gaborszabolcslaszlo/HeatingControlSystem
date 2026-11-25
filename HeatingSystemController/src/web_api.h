@@ -12,6 +12,8 @@ constexpr unsigned long API_MIN_REQUEST_INTERVAL_MS_VALUE =
 
 bool allowApiRequest();
 void handleHeatingRequest();
+void handleBoilerBufferOperation();
+void handleBoilerTestMode();
 void handleReboot();
 void handleSetTemperatureTest();
 void handleManualMode();

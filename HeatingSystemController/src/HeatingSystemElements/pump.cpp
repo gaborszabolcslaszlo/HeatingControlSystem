@@ -87,6 +87,16 @@ void Pump::print()
 
 void Pump::update()
 {
+    if (operationOverride >= 0)
+    {
+        controlSignal = operationOverride;
+        if (workingMode == PumpWorkingMode::ONOFF)
+            writeIO(id, controlSignal);
+        else if (workingMode == PumpWorkingMode::PWM)
+            writePwmIO(id, controlSignal);
+        return;
+    }
+
     if (!active)
     {
         controlSignal = 0;
@@ -110,7 +120,7 @@ void Pump::update()
         if (pid_c.allparamok && pid_c.enabled)
         {
             float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
-            controlSignal = pid_c.compute(pid_c.setPointConfig, tempValue);
+            controlSignal = static_cast<int>(pid_c.compute(pid_c.setPointConfig, tempValue));
         }
         else
         {
@@ -134,6 +144,11 @@ void Pump::enable()
         float tempValue = Sensor::SensorsValue[std::string(pid_c.tempSensorId.c_str())];
         pid_c.setEnabled(true, tempValue);
     }
+}
+
+void Pump::setOperationOverride(int signal)
+{
+    operationOverride = signal < 0 ? -1 : PID::limit(signal, 0, maxControlSig);
 }
 void Pump::disable()
 {

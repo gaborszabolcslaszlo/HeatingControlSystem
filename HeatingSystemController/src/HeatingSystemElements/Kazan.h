@@ -18,6 +18,7 @@ public:
         HEATING,
         OVERHEATED,
         PREHEAT_FROM_PUFFER,
+        COOLING_FROM_PUFFER,
         STATE_COUNT
     };
 
@@ -49,18 +50,40 @@ public:
     void requestStop();
     bool isStartRequested() const;
 
+    struct BufferOperationConfig
+    {
+        bool enabled = false;
+        std::string bufferName;
+        unsigned long maxDurationMs = 300000UL;
+        float minDeltaTemp = 2.0f;
+        float stopDeltaTemp = 1.0f;
+        float targetTemp = 38.0f;
+        int pumpSignal = 100;
+        int bufferPumpSignal = -1; // Hiányzó beállításnál a pumpSignal érvényes.
+        std::vector<int> stopPumpIds;
+    };
+    BufferOperationConfig preheatFromPuffer;
+    BufferOperationConfig coolingFromPuffer;
+
+    bool beginBufferOperation(bool cooling);
+    void cancelBufferOperation();
+    bool isBufferOperationActive() const;
+    bool isColdForBufferOperation();
+    bool hasUnsafeTemperature();
+
 private:
     bool startRequested = false;
     float retourTempProtValue;
     float tourTempProtValue;
     float activationThreshold;
-    bool isRetourProtectionActive;
-    bool isOverHeatProtectionActive;
-    bool isKazanActive;
+    bool isRetourProtectionActive = false;
+    bool isOverHeatProtectionActive = false;
+    bool isKazanActive = false;
 
-    float tourTemp;
-    float retourTemp;
-    float bodyTemp;
+    float tourTemp = 0.0f;
+    float retourTemp = 0.0f;
+    float bodyTemp = 0.0f;
+    unsigned long bufferOperationStartedAt = 0;
 
     FuelType fuelType;
 
@@ -72,6 +95,7 @@ private:
     void state_HEATING();
     void state_OVERHEATED();
     void state_PREHEAT_FROM_PUFFER();
+    void state_COOLING_FROM_PUFFER();
 
     // Transition Functions
     bool trch_COOLD_to_RETOUR_PROTECTION();
@@ -82,6 +106,8 @@ private:
     bool trch_OVERHEATED_to_HEATING();
     bool trch_PREHEAT_FROM_PUFFER_to_RETOUR_PROTECTION();
     bool trch_PREHEAT_FROM_PUFFER_to_COOLD();
+    bool trch_COOLING_FROM_PUFFER_to_COOLD();
+    bool trch_bufferOperation_to_OVERHEATED();
 };
 
 #endif

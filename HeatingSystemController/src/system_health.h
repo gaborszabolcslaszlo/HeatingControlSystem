@@ -19,3 +19,7 @@ constexpr uint32_t HEALTH_YELLOW_MASK = HEALTH_SENSOR_RANGE | HEALTH_SENSOR_SPIK
 void setHealthCondition(HealthCondition condition, bool active);
 uint32_t getHealthConditions();
 const char *healthColor(uint32_t conditions);
+bool boilerTestModeAvailable();
+bool isBoilerTestModeEnabled();
+bool setBoilerTestMode(bool enabled);
+uint32_t getBoilerOperationHealthConditions();

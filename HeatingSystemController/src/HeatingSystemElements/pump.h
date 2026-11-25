@@ -55,7 +55,11 @@ public:
 
     void disable();
 
+    // Ideiglenes kazán/puffer művelet; -1 visszaadja a normál vezérlést.
+    void setOperationOverride(int signal);
+
 private:
+    int operationOverride = -1;
     int controlSignal = 0;
     PID pid_c;
 };

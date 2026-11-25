@@ -266,6 +266,19 @@ void registerHttpRoutes()
               server.send(200); });
 
   server.on("/heatingRequest", HTTP_GET, handleHeatingRequest);
+  server.on("/boiler/buffer-operation", HTTP_POST, handleBoilerBufferOperation);
+  server.on("/boiler/test-mode", HTTP_GET, handleBoilerTestMode);
+  server.on("/boiler/test-mode", HTTP_POST, handleBoilerTestMode);
+  server.on("/boiler/test-mode", HTTP_OPTIONS, []()
+            {
+              server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+              server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+              server.send(204); });
+  server.on("/boiler/buffer-operation", HTTP_OPTIONS, []()
+            {
+              server.sendHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+              server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+              server.send(204); });
   server.on("/logs", HTTP_GET, handleLogs);
   server.on("/configuration", HTTP_GET, handleConfiguration);
   server.on("/configuration", HTTP_POST, handleConfigFileUpload, handleFileUpload);

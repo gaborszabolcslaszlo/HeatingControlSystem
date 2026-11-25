@@ -10,6 +10,8 @@ PID::PID(float kp, float ki, float kd)
       Kd(kd),
       outMin(0.0f),
       outMax(100.0f),
+      deadZoneMin(0.0f),
+      deadZoneMax(0.0f),
       integral(0.0f),
       prevInput(0.0f),
       enabled(true),
@@ -59,40 +61,44 @@ float PID::compute(float setpoint, float input)
         return 0.0f;
     }
 
+    float output = Kp * (setpoint - input) + integral;
+
     if (!initialized)
     {
         prevInput = input;
-        lastComputeTime = now;
         initialized = true;
+    }
+    else if (dt_ms == 0 || dt_ms > 60000UL)
+    {
+        prevInput = input;
+    }
+    else
+    {
+        float dt = dt_ms * 0.001f;
+        float error = setpoint - input;
 
-        return limit(
-            Kp * (setpoint - input) + integral,
-            outMin,
-            outMax);
+        float P = Kp * error;
+
+        integral += Ki * error * dt;
+        integral = limit(integral, outMin, outMax);
+
+        float D = -Kd * (input - prevInput) / dt;
+
+        prevInput = input;
+
+        output = P + integral + D;
     }
 
     lastComputeTime = now;
 
-    if (dt_ms == 0 || dt_ms > 60000UL)
+    // A szivattyú indulási eltolása a pozitív PID-igényhez adódik.
+    if (deadZoneMax > deadZoneMin)
     {
-        prevInput = input;
-        return limit(
-            Kp * (setpoint - input) + integral,
-            outMin,
-            outMax);
+        if (output <= 0.0f)
+            return 0.0f;
+
+        output += deadZoneMax;
     }
 
-    float dt = dt_ms * 0.001f;
-    float error = setpoint - input;
-
-    float P = Kp * error;
-
-    integral += Ki * error * dt;
-    integral = limit(integral, outMin, outMax);
-
-    float D = -Kd * (input - prevInput) / dt;
-
-    prevInput = input;
-
-    return limit(P + integral + D, outMin, outMax);
+    return limit(output, outMin, outMax);
 }

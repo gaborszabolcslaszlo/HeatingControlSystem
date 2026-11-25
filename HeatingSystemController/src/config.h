@@ -120,6 +120,8 @@ void saveConfig()
   logInfo("Konfiguráció elmentve.");
 }
 
+#include "HeatingSystemElements/boiler_buffer_config.h"
+
 bool validateConfigurationJson(const String &jsonData, String &errorMessage)
 {
   DynamicJsonDocument doc(8192);
@@ -311,11 +313,12 @@ bool validateConfigurationJson(const String &jsonData, String &errorMessage)
           errorMessage = String("Hibás szivattyú vezérlési tartomány: ") + pumpName;
           return false;
         }
-
         if (pump.containsKey("pid"))
         {
           JsonObject pid = pump["pid"].as<JsonObject>();
           String tempSensorId = pid["tempSensorId"].as<String>();
+          float deadZoneMin = pid["deadZoneMin"] | 0.0f;
+          float deadZoneMax = pid["deadZoneMax"] | 0.0f;
           if (pid.isNull() || tempSensorId.length() == 0 ||
               !pid.containsKey("setPoint") || !isNumber(pid["setPoint"]) ||
               !pid.containsKey("enabled") || !pid["enabled"].is<bool>() ||
@@ -324,6 +327,13 @@ bool validateConfigurationJson(const String &jsonData, String &errorMessage)
               !pid.containsKey("d") || !isNumber(pid["d"]))
           {
             errorMessage = String("Hiányos PID-konfiguráció: ") + pumpName;
+            return false;
+          }
+          if (deadZoneMin < 0.0f || deadZoneMax > 100.0f ||
+              deadZoneMin > deadZoneMax ||
+              (deadZoneMax > 0.0f && deadZoneMin == deadZoneMax))
+          {
+            errorMessage = String("Hibás PID dead zone: ") + pumpName;
             return false;
           }
           if (sensorIds.count(std::string(tempSensorId.c_str())) == 0)
@@ -339,6 +349,13 @@ bool validateConfigurationJson(const String &jsonData, String &errorMessage)
   if (!hasBoiler)
   {
     errorMessage = "Nem található érvényes kazánkonfiguráció.";
+    return false;
+  }
+
+  std::string operationError;
+  if (!validateBoilerBufferConfiguration(heatingSystem, operationError))
+  {
+    errorMessage = operationError.c_str();
     return false;
   }
 

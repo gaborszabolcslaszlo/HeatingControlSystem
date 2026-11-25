@@ -19,6 +19,7 @@ public:
         DISCHARGING_BUFFER_AND_HEATING,
         PREHEATING_BOILER,
         FAULT,
+        COOLING_BOILER,
         STATE_COUNT
     };
 
@@ -40,7 +41,22 @@ public:
     const char *getStateName(State state) const;
     State getState() const;
 
+    void setElements(const std::vector<HeatingElement *> &elements);
+    bool requestBoilerBufferOperation(const std::string &boilerName, bool cooling,
+                                     std::string &error);
+    bool cancelBoilerBufferOperation(const std::string &boilerName, std::string &error);
+    bool isBoilerBufferOperationActive() const { return operationBoiler != nullptr; }
+
 private:
+    std::vector<HeatingElement *> elements;
+    Kazan *operationBoiler = nullptr;
+    Puffer *operationBuffer = nullptr;
+    bool coolingOperation = false;
+    std::vector<Pump *> operationPumps;
+    bool bufferOperationPossible(Kazan &boiler, Puffer &buffer, bool cooling,
+                                 bool starting, std::string &error);
+    void applyOperationPumps();
+    void finishBufferOperation();
     std::vector<Kazan *> boilers;
     std::vector<Puffer *> buffers;
     std::vector<Radiator *> consumers;
@@ -72,6 +88,7 @@ private:
     void state_CHARGING_BUFFER_AND_HEATING();
     void state_DISCHARGING_BUFFER_AND_HEATING();
     void state_PREHEATING_BOILER();
+    void state_COOLING_BOILER();
     void state_FAULT();
 
     // Minden különböző állapotpárhoz külön tranzíciós függvény.

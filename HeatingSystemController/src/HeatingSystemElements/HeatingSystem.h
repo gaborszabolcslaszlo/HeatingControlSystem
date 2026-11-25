@@ -57,6 +57,15 @@ public:
     void update();
 
     bool hasControllerFault() const { return controller.getState() == HeatingController::FAULT; }
+    bool requestBoilerBufferOperation(const std::string &name, bool cooling, std::string &error)
+    {
+        return controller.requestBoilerBufferOperation(name, cooling, error);
+    }
+    bool cancelBoilerBufferOperation(const std::string &name, std::string &error)
+    {
+        return controller.cancelBoilerBufferOperation(name, error);
+    }
+    bool isBoilerBufferOperationActive() const { return controller.isBoilerBufferOperationActive(); }
 
     void intiHeatingSystem(const std::string &filename);
 

@@ -480,7 +480,7 @@ uint8_t StateDataLogger::stateCode(const char *value)
         "CHARGE", "DISCHARGE", "FULL_CHARGED", "FULL_DISCHARGED", "STANDBY",
         "STATE_STANDBY", "STATE_WAITING_FOR_HEATING", "STATE_RECEIVING_HEATING",
         "STATE_FAULT", "CHARGING_BUFFER", "CHARGING_BUFFER_AND_HEATING",
-        "DISCHARGING_BUFFER_AND_HEATING", "PREHEATING_BOILER", "FAULT", "true", "false"};
+        "DISCHARGING_BUFFER_AND_HEATING", "PREHEATING_BOILER", "FAULT", "true", "false", "COOLING_FROM_PUFFER", "COOLING_BOILER"};
     for (uint8_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
     {
         if (strcmp(value, names[i]) == 0)
@@ -499,7 +499,7 @@ const char *StateDataLogger::stateName(uint8_t code)
         "CHARGE", "DISCHARGE", "FULL_CHARGED", "FULL_DISCHARGED", "STANDBY",
         "STATE_STANDBY", "STATE_WAITING_FOR_HEATING", "STATE_RECEIVING_HEATING",
         "STATE_FAULT", "CHARGING_BUFFER", "CHARGING_BUFFER_AND_HEATING",
-        "DISCHARGING_BUFFER_AND_HEATING", "PREHEATING_BOILER", "FAULT", "true", "false"};
+        "DISCHARGING_BUFFER_AND_HEATING", "PREHEATING_BOILER", "FAULT", "true", "false", "COOLING_FROM_PUFFER", "COOLING_BOILER"};
     return code >= 1 && code <= sizeof(names) / sizeof(names[0]) ? names[code - 1] : nullptr;
 }
 

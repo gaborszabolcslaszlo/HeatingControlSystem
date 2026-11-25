@@ -4,6 +4,7 @@ import subprocess
 
 import gzip
 import shutil
+import tempfile
 from pathlib import Path
 
 def gzip_folder(folder, pattern):
@@ -24,18 +25,41 @@ target_dir = "data"
 
 
 
-# ha nem létezik a cél, hozd létre
-os.makedirs(target_dir, exist_ok=True)
+# A web build bemásolása előtt őrizzük meg a projektben lévő flags ikonokat.
+# A teljes data könyvtár törlése különben ezeket is eltávolítaná.
+with tempfile.TemporaryDirectory(prefix="heating-control-build-") as temp_dir:
+    preserved_flags_dir = Path(temp_dir) / "flags"
+    existing_flags_dir = Path(target_dir) / "flags"
+    if existing_flags_dir.is_dir():
+        shutil.copytree(existing_flags_dir, preserved_flags_dir)
 
-# másold át a teljes könyvtárat
-if os.path.exists(source_dir):
-    # először töröld a régi mockdata mappát (ha van)
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    shutil.copytree(source_dir, target_dir)
-    print(f"✅ Web interface copied from {source_dir} to {target_dir}")
-else:
-    print(f"⚠️ Source directory not found: {source_dir}")
+    # ha nem létezik a cél, hozd létre
+    os.makedirs(target_dir, exist_ok=True)
+
+    # másold át a teljes könyvtárat
+    if os.path.exists(source_dir):
+        # először töröld a régi data mappát (ha van)
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir)
+        shutil.copytree(source_dir, target_dir)
+        print(f"✅ Web interface copied from {source_dir} to {target_dir}")
+    else:
+        print(f"⚠️ Source directory not found: {source_dir}")
+
+    # A buildből hiányzó flags ikonokat a projekt korábbi data/flags mappájából
+    # állítsuk vissza. A meglévő web build fájlokat nem írjuk felül.
+    if preserved_flags_dir.is_dir():
+        target_flags_dir = Path(target_dir) / "flags"
+        target_flags_dir.mkdir(parents=True, exist_ok=True)
+        for icon_path in preserved_flags_dir.rglob("*"):
+            if not icon_path.is_file():
+                continue
+            relative_path = icon_path.relative_to(preserved_flags_dir)
+            target_path = target_flags_dir / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if not target_path.exists():
+                shutil.copy2(icon_path, target_path)
+                print(f"✅ Restored flag icon: {target_path}")
 
 # SPIFFS-en a teljes relatív útvonal hossza korlátozott. Az Angular build
 # ugyanazt a JSONEditor ikont két helyre is kiteheti; a hosszú hash-elt

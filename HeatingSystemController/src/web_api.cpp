@@ -12,6 +12,7 @@
 #include "HeatingSystemElements/HeatingElement.h"
 #include "HeatingSystemElements/Sensor.h"
 #include "comon.h"
+#include "system_health.h"
 #ifdef ESP32
 #include <esp_heap_caps.h>
 #include <esp_system.h>
@@ -82,6 +83,97 @@ void handleHeatingRequest()
     server.send(400, "text/plain", "Error: Unknown element with name" + name);
   }
   server.send(400, "text/plain", "Error: Missing 'name' or 'setTemp' parameter.");
+}
+
+void handleBoilerBufferOperation()
+{
+  if (!allowApiRequest())
+    return;
+  JsonDocument request;
+  if (!server.hasArg("plain") || deserializeJson(request, server.arg("plain")) ||
+      !request.is<JsonObject>() || !request["boiler"].is<const char *>() ||
+      !request["action"].is<const char *>())
+  {
+    server.send(400, "application/json", "{\"error\":\"Expected boiler and action strings in a JSON object\"}");
+    return;
+  }
+  const std::string boiler = request["boiler"].as<const char *>();
+  const std::string action = request["action"].as<const char *>();
+  if (boiler.empty() || (action != "preheat" && action != "cooling" && action != "cancel"))
+  {
+    server.send(400, "application/json", "{\"error\":\"Action must be preheat, cooling or cancel; boiler must be nonempty\"}");
+    return;
+  }
+  if (!hs)
+  {
+    server.send(503, "application/json", "{\"error\":\"Heating system is unavailable\"}");
+    return;
+  }
+  if (action != "cancel")
+  {
+    if (getBoilerOperationHealthConditions() & (HEALTH_RED_MASK | HEALTH_OVERHEAT))
+    {
+      server.send(409, "application/json", "{\"error\":\"System health does not allow boiler operation\"}");
+      return;
+    }
+    for (bool manual : manualIOOverrides)
+    {
+      if (manual)
+      {
+        server.send(409, "application/json", "{\"error\":\"Release manual pump overrides before starting\"}");
+        return;
+      }
+    }
+  }
+  std::string error;
+  const bool accepted = action == "cancel"
+      ? hs->cancelBoilerBufferOperation(boiler, error)
+      : hs->requestBoilerBufferOperation(boiler, action == "cooling", error);
+  JsonDocument response;
+  if (accepted)
+  {
+    heatingSystemUpdatePending = true;
+    response["status"] = action == "cancel" ? "cancelled" : "started";
+    response["boiler"] = boiler;
+    response["action"] = action;
+  }
+  else
+    response["error"] = error;
+  String body;
+  serializeJson(response, body);
+  server.send(accepted ? 200 : 409, "application/json", body);
+}
+
+void handleBoilerTestMode()
+{
+  if (!allowApiRequest())
+    return;
+  if (server.method() == HTTP_POST)
+  {
+    JsonDocument request;
+    if (!server.hasArg("plain") || deserializeJson(request, server.arg("plain")) ||
+        !request.is<JsonObject>() || !request["enabled"].is<bool>())
+    {
+      server.send(400, "application/json", "{\"error\":\"Expected a boolean enabled field\"}");
+      return;
+    }
+    const bool enabled = request["enabled"].as<bool>();
+    if (!setBoilerTestMode(enabled))
+    {
+      server.send(403, "application/json", "{\"error\":\"Test mode requires TESTINGOVER_API firmware\"}");
+      return;
+    }
+    heatingSystemUpdatePending = true;
+    logInfo("[API] Boiler test mode: %s\n", enabled ? "enabled" : "disabled");
+  }
+  JsonDocument response;
+  response["available"] = boilerTestModeAvailable();
+  response["enabled"] = isBoilerTestModeEnabled();
+  response["healthConditions"] = getHealthConditions();
+  response["operationHealthConditions"] = getBoilerOperationHealthConditions();
+  String body;
+  serializeJson(response, body);
+  server.send(200, "application/json", body);
 }
 
 // Funkció az újraindításhoz
@@ -195,6 +287,12 @@ void handleManualMode()
 {
   if (!allowApiRequest())
   {
+    return;
+  }
+
+  if (hs && hs->isBoilerBufferOperationActive())
+  {
+    server.send(409, "application/json", "{\"error\":\"Cancel the boiler buffer operation before manual pump control\"}");
     return;
   }
 

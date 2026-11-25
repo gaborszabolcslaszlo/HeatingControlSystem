@@ -1,4 +1,6 @@
 #include "HeatingController.h"
+#include <algorithm>
+#include <cmath>
 
 HeatingController::HeatingController()
     : sm(this, STANDBY),
@@ -16,6 +18,7 @@ HeatingController::HeatingController()
     sm.addState(CHARGING_BUFFER_AND_HEATING, &HeatingController::state_CHARGING_BUFFER_AND_HEATING);
     sm.addState(DISCHARGING_BUFFER_AND_HEATING, &HeatingController::state_DISCHARGING_BUFFER_AND_HEATING);
     sm.addState(PREHEATING_BOILER, &HeatingController::state_PREHEATING_BOILER);
+    sm.addState(COOLING_BOILER, &HeatingController::state_COOLING_BOILER);
     sm.addState(FAULT, &HeatingController::state_FAULT);
 
     // Az összes különböző állapotpár tranzíciójának regisztrálása.
@@ -89,6 +92,8 @@ const char *HeatingController::getStateName(State state) const
 
     case PREHEATING_BOILER:
         return "PREHEATING_BOILER";
+    case COOLING_BOILER:
+        return "COOLING_BOILER";
 
     case FAULT:
         return "FAULT";
@@ -116,8 +121,23 @@ void HeatingController::addConsumer(Radiator &radiator)
 
 void HeatingController::run()
 {
+    if (operationBoiler)
+    {
+        std::string error;
+        if (!bufferOperationPossible(*operationBoiler, *operationBuffer,
+                                     coolingOperation, false, error))
+        {
+            logInfo("[BOILER] Buffer operation stopped: %s\n", error.c_str());
+            operationBoiler->cancelBufferOperation();
+            finishBufferOperation();
+        }
+    }
+
     for (Kazan *kazan : boilers)
         kazan->run();
+
+    if (operationBoiler && !operationBoiler->isBufferOperationActive())
+        finishBufferOperation();
 
     for (Puffer *puffer : buffers)
         puffer->run();
@@ -126,6 +146,15 @@ void HeatingController::run()
         radiator->run();
 
     updateConditions();
+    if (operationBoiler)
+    {
+        // A kézi művelet alatt a normál tranzíciók nem szakítják meg a kérést.
+        if (coolingOperation)
+            state_COOLING_BOILER();
+        else
+            state_PREHEATING_BOILER();
+        return;
+    }
     sm.run();
 }
 
@@ -198,6 +227,8 @@ const char *HeatingController::getModeName() const
         return "DISCHARGING_BUFFER_AND_HEATING";
     case PREHEATING_BOILER:
         return "PREHEATING_BOILER";
+    case COOLING_BOILER:
+        return "COOLING_BOILER";
     case FAULT:
         return "FAULT";
     default:
@@ -367,7 +398,12 @@ void HeatingController::state_DISCHARGING_BUFFER_AND_HEATING()
 
 void HeatingController::state_PREHEATING_BOILER()
 {
-    // Az előmelegítési logika később kerül ide.
+    applyOperationPumps();
+}
+
+void HeatingController::state_COOLING_BOILER()
+{
+    applyOperationPumps();
 }
 
 void HeatingController::state_FAULT()
@@ -606,4 +642,209 @@ bool HeatingController::trch_FAULT_to_DISCHARGING_BUFFER_AND_HEATING()
 bool HeatingController::trch_FAULT_to_PREHEATING_BOILER()
 {
     return false;
+}
+
+void HeatingController::setElements(const std::vector<HeatingElement *> &managedElements)
+{
+    elements = managedElements;
+}
+
+namespace
+{
+    bool refreshOperationSensors(HeatingElement &element)
+    {
+        if (element.tourSensors.empty() || element.retourSensors.empty() ||
+            (element.ElemType == HeatingElementType::KAZAN && element.bodySensors.empty()))
+            return false;
+        for (Sensor &sensor : element.sensors)
+        {
+            const auto reading = Sensor::SensorsValue.find(sensor.id);
+            if (reading == Sensor::SensorsValue.end() || !std::isfinite(reading->second) ||
+                reading->second + sensor.offset < -55.0f || reading->second + sensor.offset > 125.0f)
+                return false;
+            sensor.update();
+        }
+        return true;
+    }
+}
+
+bool HeatingController::bufferOperationPossible(Kazan &boiler, Puffer &buffer,
+                                               bool cooling, bool starting,
+                                               std::string &error)
+{
+    const auto &config = cooling ? boiler.coolingFromPuffer : boiler.preheatFromPuffer;
+    if (!config.enabled || boiler.getFuelType() != Kazan::FuelType::WOOD)
+        error = "Operation is disabled or boiler is not wood-fired";
+    else if (getState() == FAULT || hasOverheat())
+        error = "Controller fault or overheat";
+    else if (!refreshOperationSensors(boiler) || !refreshOperationSensors(buffer))
+        error = "Missing or invalid boiler/buffer temperature";
+    else if (boiler.hasUnsafeTemperature() || buffer.getTourTemperature() >= 95.0f ||
+             buffer.getReTourTemperature() >= 95.0f || buffer.getBodyTemperature() >= 95.0f)
+        error = "Boiler or buffer temperature is unsafe";
+    else if (starting && !boiler.isColdForBufferOperation())
+        error = "Boiler must be COOLD and below its activation temperature";
+    else
+    {
+        for (Kazan *other : boilers)
+        {
+            if (other != &boiler && other->getState() != Kazan::COOLD)
+            {
+                error = "Another boiler is active";
+                return false;
+            }
+        }
+        const float delta = starting ? config.minDeltaTemp : config.stopDeltaTemp;
+        if (!starting && !cooling && boiler.getReTourTemperature() >= config.targetTemp)
+            return true;
+        if (cooling)
+        {
+            if (boiler.getTourTemperature() <= boiler.getReTourTemperature() + config.stopDeltaTemp)
+                error = "Boiler supply has already cooled to return temperature";
+            else if (boiler.getTourTemperature() <= buffer.getReTourTemperature() + delta)
+                error = "Buffer return is not cold enough to cool the boiler";
+            else
+                return true;
+        }
+        else if (starting && boiler.getReTourTemperature() >= config.targetTemp)
+            error = "Boiler has already reached the preheat target";
+        else if (buffer.getTourTemperature() <=
+                 std::max(boiler.getTourTemperature(), boiler.getReTourTemperature()) + delta)
+            error = "Buffer supply is not warm enough to preheat the boiler";
+        else
+            return true;
+    }
+    return false;
+}
+
+bool HeatingController::requestBoilerBufferOperation(const std::string &boilerName,
+                                                     bool cooling, std::string &error)
+{
+    if (operationBoiler)
+    {
+        error = "A boiler buffer operation is already running";
+        return false;
+    }
+    Kazan *boiler = nullptr;
+    for (Kazan *candidate : boilers)
+        if (candidate->name == boilerName)
+            boiler = candidate;
+    if (!boiler)
+    {
+        error = "Unknown boiler";
+        return false;
+    }
+    const auto &config = cooling ? boiler->coolingFromPuffer : boiler->preheatFromPuffer;
+    Puffer *buffer = nullptr;
+    for (Puffer *candidate : buffers)
+        if (candidate->name == config.bufferName)
+            buffer = candidate;
+    if (!buffer)
+    {
+        error = "Configured buffer is missing";
+        return false;
+    }
+    if (!bufferOperationPossible(*boiler, *buffer, cooling, true, error))
+        return false;
+
+    // Csak a kazán és a kijelölt puffer töltőágának pumpáit indítjuk.
+    std::vector<Pump *> runPumps;
+    std::vector<int> runSignals;
+    for (HeatingElement *element : {static_cast<HeatingElement *>(boiler), static_cast<HeatingElement *>(buffer)})
+    {
+        size_t count = 0;
+        for (Pump &pump : element->pumps)
+        {
+            if (pump.dischargepump)
+                continue;
+            const int signal = element == buffer && pump.workingMode == PumpWorkingMode::PWM &&
+                                       config.bufferPumpSignal >= 0
+                                   ? config.bufferPumpSignal : config.pumpSignal;
+            if (pump.workingMode == PumpWorkingMode::UNKNOWN ||
+                signal < 1 || signal > 100 ||
+                pump.maxControlSig < signal || signal < pump.minControlSig ||
+                std::find(config.stopPumpIds.begin(), config.stopPumpIds.end(), pump.id) != config.stopPumpIds.end())
+            {
+                error = "Pump signal or stop list conflicts with the circulation pumps";
+                return false;
+            }
+            runPumps.push_back(&pump);
+            runSignals.push_back(signal);
+            ++count;
+        }
+        if (count == 0)
+        {
+            error = "Boiler and buffer both need a circulation pump";
+            return false;
+        }
+    }
+    std::vector<Pump *> stopPumps;
+    for (int id : config.stopPumpIds)
+    {
+        Pump *matched = nullptr;
+        for (HeatingElement *element : elements)
+            for (Pump &pump : element->pumps)
+                if (pump.id == id)
+                    matched = &pump;
+        if (!matched)
+        {
+            error = "Unknown pump IO in stopPumpIds";
+            return false;
+        }
+        stopPumps.push_back(matched);
+    }
+    if (!boiler->beginBufferOperation(cooling))
+    {
+        error = "Boiler cannot enter the requested operation";
+        return false;
+    }
+    operationBoiler = boiler;
+    operationBuffer = buffer;
+    coolingOperation = cooling;
+    sm.setState(cooling ? COOLING_BOILER : PREHEATING_BOILER);
+    operationPumps = stopPumps;
+    operationPumps.insert(operationPumps.end(), runPumps.begin(), runPumps.end());
+    for (Pump *pump : stopPumps)
+        pump->setOperationOverride(0);
+    for (size_t i = 0; i < runPumps.size(); ++i)
+        runPumps[i]->setOperationOverride(runSignals[i]);
+    applyOperationPumps();
+    logInfo("[BOILER] %s: %s started\n", boilerName.c_str(), cooling ? "cooling" : "preheat");
+    return true;
+}
+
+void HeatingController::applyOperationPumps()
+{
+    if (!operationBoiler)
+        return;
+    operationBuffer->requestCharge();
+    for (Pump *pump : operationPumps)
+        pump->update();
+}
+
+void HeatingController::finishBufferOperation()
+{
+    for (Pump *pump : operationPumps)
+    {
+        pump->setOperationOverride(-1);
+        pump->update();
+    }
+    operationPumps.clear();
+    operationBuffer->requestStandby();
+    operationBoiler = nullptr;
+    operationBuffer = nullptr;
+    sm.setState(STANDBY);
+}
+
+bool HeatingController::cancelBoilerBufferOperation(const std::string &boilerName, std::string &error)
+{
+    if (!operationBoiler || operationBoiler->name != boilerName)
+    {
+        error = "No buffer operation is running for this boiler";
+        return false;
+    }
+    operationBoiler->cancelBufferOperation();
+    finishBufferOperation();
+    logInfo("[BOILER] %s: buffer operation cancelled\n", boilerName.c_str());
+    return true;
 }

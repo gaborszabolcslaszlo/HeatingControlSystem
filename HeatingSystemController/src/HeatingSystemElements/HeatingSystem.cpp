@@ -1,6 +1,8 @@
 
 #include "HeatingSystem.h"
+#include "boiler_buffer_config.h"
 #ifndef UNIT_TESTING
+#include "system_health.h"
 #include <FS.h>
 #ifdef ESP32
 #include <SPIFFS.h>
@@ -22,6 +24,7 @@ HeatingSystem::HeatingSystem(const std::string &filename)
 
 void HeatingSystem::postInitTasks()
 {
+    controller.setElements(mergedList);
 }
 
 void HeatingSystem::addKazan(Kazan *element)
@@ -101,6 +104,16 @@ void HeatingSystem::printHeatingSystem()
 
 void HeatingSystem::update()
 {
+#ifndef UNIT_TESTING
+    if (getBoilerOperationHealthConditions() & (HEALTH_SENSOR_UNAVAILABLE | HEALTH_PWM_UNAVAILABLE | HEALTH_OVERHEAT))
+    {
+        for (Kazan *boiler : kazan)
+        {
+            std::string error;
+            controller.cancelBoilerBufferOperation(boiler->name, error);
+        }
+    }
+#endif
 
     controller.run();
     HeatingElement::setStateValue(kHeatingControllerStateKey, "state", controller.getModeName());
@@ -172,6 +185,12 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
     }
 
     JsonObject heatingSystem = doc["HeatingSystem"];
+    std::string operationError;
+    if (!validateBoilerBufferConfiguration(heatingSystem, operationError))
+    {
+        logError("Invalid boiler buffer configuration: %s\n", operationError.c_str());
+        return;
+    }
 
     // Check for mandatory components and validate each section
     for (JsonPair keyValue : heatingSystem)
@@ -205,6 +224,22 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                 float tourTempProtValue = element["tourTempProtValue"];
                 float activationThreshold = element["activationThreshold"];
                 heatingElement = new Kazan(messageBus, name, retourTempProtValue, tourTempProtValue, activationThreshold, Kazan::FuelType::WOOD);
+                Kazan *boiler = static_cast<Kazan *>(heatingElement);
+                auto loadOperation = [](JsonObject section, Kazan::BufferOperationConfig &config)
+                {
+                    config.enabled = section["enabled"] | false;
+                    config.bufferName = section["bufferName"] | "";
+                    config.maxDurationMs = (section["maxDurationSeconds"] | 300UL) * 1000UL;
+                    config.minDeltaTemp = section["minDeltaTemp"] | 2.0f;
+                    config.stopDeltaTemp = section["stopDeltaTemp"] | 1.0f;
+                    config.targetTemp = section["targetTemp"] | config.targetTemp;
+                    config.pumpSignal = section["pumpSignal"] | 100;
+                    config.bufferPumpSignal = section["bufferPumpSignal"] | config.pumpSignal;
+                    for (JsonVariant id : section["stopPumpIds"].as<JsonArray>())
+                        config.stopPumpIds.push_back(id.as<int>());
+                };
+                loadOperation(element["preheatFromPuffer"].as<JsonObject>(), boiler->preheatFromPuffer);
+                loadOperation(element["coolingFromPuffer"].as<JsonObject>(), boiler->coolingFromPuffer);
                 break;
             }
             case HeatingElementType::RADIATOR:
@@ -314,7 +349,9 @@ void HeatingSystem::intiHeatingSystem(const std::string &filename)
                     pid_c = PID(p, i, d);
                     pid_c.enabled = pid["enabled"] | true;
                     pid_c.tempSensorId = tempSensorId;
-                    pid_c.outMin = 0.0;
+                    pid_c.deadZoneMin = pid["deadZoneMin"] | 0.0f;
+                    pid_c.deadZoneMax = pid["deadZoneMax"] | 0.0f;
+                    pid_c.outMin = 0.0f;
                     pid_c.outMax = 99.9;
                     pid_c.setPointConfig = pid["setPoint"];
                     pid_c.allparamok = true;

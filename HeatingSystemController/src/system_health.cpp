@@ -1,7 +1,40 @@
 #include "system_health.h"
 #include <atomic>
 
-namespace { std::atomic<uint32_t> activeConditions{0}; }
+namespace
+{
+  std::atomic<uint32_t> activeConditions{0};
+  std::atomic<bool> boilerTestMode{false};
+}
+
+bool boilerTestModeAvailable()
+{
+#ifdef TESTINGOVER_API
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool isBoilerTestModeEnabled() { return boilerTestMode.load(); }
+
+bool setBoilerTestMode(bool enabled)
+{
+  if (enabled && !boilerTestModeAvailable())
+    return false;
+  boilerTestMode.store(enabled);
+  return true;
+}
+
+uint32_t getBoilerOperationHealthConditions()
+{
+  const uint32_t conditions = getHealthConditions();
+  // Szimulált szenzorérték és IO használható a tesztfirmware-ben.
+  // A túlmelegedés és a vezérlőhiba továbbra is blokkol.
+  return isBoilerTestModeEnabled()
+      ? conditions & ~(HEALTH_SENSOR_UNAVAILABLE | HEALTH_PWM_UNAVAILABLE)
+      : conditions;
+}
 
 void setHealthCondition(HealthCondition condition, bool active)
 {

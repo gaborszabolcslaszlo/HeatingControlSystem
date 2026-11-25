@@ -21,6 +21,7 @@ Puffer::Puffer(MessageBus &bus, std::string name, std::string linkedHeatSourceNa
     sm.addTransition(DISCHARGE, CHARGE, &Puffer::trch_DISCHARGE_to_CHARGE);
     sm.addTransition(CHARGE, DISCHARGE, &Puffer::trch_CHARGE_to_DISCHARGE);
     sm.addTransition(FULL_CHARGED, STANDBY, &Puffer::trch_FULL_CHARGED_to_STANDBY);
+    sm.addTransition(FULL_CHARGED, CHARGE, &Puffer::trch_STANDBY_to_CHARGE);
     sm.addTransition(FULL_CHARGED, DISCHARGE, &Puffer::trch_FULL_CHARGED_to_DISCHARGE);
     sm.addTransition(FULL_DISCHARGED, STANDBY, &Puffer::trch_FULL_DISCHARGED_to_STANDBY);
     sm.addTransition(FULL_DISCHARGED, CHARGE, &Puffer::trch_FULL_DISCHARGED_to_CHARGE);

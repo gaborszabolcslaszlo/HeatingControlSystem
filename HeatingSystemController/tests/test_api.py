@@ -45,6 +45,12 @@ def _state_history_files(api_session, api_base_url: str) -> dict:
     payload = response.json()
     assert isinstance(payload, dict)
     assert isinstance(payload.get("files"), list)
+    # Régebbi firmware-ek a SPIFFS fájlnevet kezdő '/' nélkül adták vissza.
+    # A raw API viszont abszolút fájlnevet vár, ezért a teszt egységesítse.
+    for entry in payload["files"]:
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+            if not entry["name"].startswith("/"):
+                entry["name"] = "/" + entry["name"]
     return payload
 
 

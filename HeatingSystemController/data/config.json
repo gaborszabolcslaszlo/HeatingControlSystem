@@ -13,6 +13,27 @@
                 "retourTempProtValue": 38,
                 "tourTempProtValue": 80,
                 "activationThreshold": 34,
+                "preheatFromPuffer": {
+                    "enabled": true,
+                    "bufferName": "Puffer950l",
+                    "maxDurationSeconds": 300,
+                    "minDeltaTemp": 2,
+                    "stopDeltaTemp": 1,
+                    "targetTemp": 38,
+                    "pumpSignal": 30,
+                    "bufferPumpSignal": 100,
+                    "stopPumpIds": [ 3, 5, 6, 8 ]
+                },
+                "coolingFromPuffer": {
+                    "enabled": true,
+                    "bufferName": "Puffer950l",
+                    "maxDurationSeconds": 300,
+                    "minDeltaTemp": 2,
+                    "stopDeltaTemp": 1,
+                    "pumpSignal": 30,
+                    "bufferPumpSignal": 100,
+                    "stopPumpIds": [ 3, 5, 6, 8 ]
+                },
                 "sensors": [
                     {
                         "model": "DS12B20",
@@ -167,6 +188,8 @@
                             "p": -0.6,
                             "i": -0.1,
                             "d": 0,
+                            "deadZoneMin": 0,
+                            "deadZoneMax": 9,
                             "tempSensorId": "2832B643D42F2A25",
                             "setPoint": 45
                         }
@@ -192,6 +215,8 @@
                             "p": 0.1,
                             "i": 1,
                             "d": 0,
+                            "deadZoneMin": 0,
+                            "deadZoneMax": 9,
                             "tempSensorId": "2832B643D42F2A25",
                             "setPoint": 60
                         }

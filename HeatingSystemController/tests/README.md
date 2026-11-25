@@ -338,3 +338,99 @@ python -m pytest -m integration -vv \
   --api-report=reports/api-report.md \
   --api-html-report=reports/api-report.html \
   --junitxml=reports/pytest-results.xml
+
+### Pufferes kazán-előfűtés és -hűtés
+
+A [test_boiler_buffer_operations.py](test_boiler_buffer_operations.py) mindkét
+műveletet külön paraméterezett API-tesztekkel ellenőrzi:
+
+- indítás, kazán-/vezérlőállapot és pumpaszerepek;
+- megszakítás és a keringetőpumpák leállása;
+- előfűtési célhőmérséklet, illetve kiegyenlítődő előremenő/visszatérő;
+- második indítás és nem megfelelő pufferhőmérséklet elutasítása;
+- túlmelegedés miatti megszakítás, a kazán hőelvezetésének megtartásával;
+- hibás JSON-mezők elutasítása;
+- konfigurált futásidő lejárata (`slow`).
+
+A tesztek `TESTINGOVER_API` firmware-t igényelnek: szimulált hőmérsékleteket
+küldenek a `/setTemp` végpontra és pumpákat indítanak. A `/configuration`
+válaszából veszik a szenzorazonosítókat, az offseteket, a pumpák IO-ját és a
+műveleti beállításokat. Nem töltenek fel konfigurációt és nem írnak flashre.
+A `preheatFromPuffer` és `coolingFromPuffer` szakaszt a tesztelt eszközön
+engedélyezni kell; az engedély nélküli művelet tesztje `SKIPPED` lesz.
+A konfiguráció mezőit a [funkció leírása](../docs/boiler-buffer-operations.md)
+részletezi. A kézi IO-felülírásokat a teszt előtt automatikus módba kell tenni.
+
+Gyorsabb tesztek az időkorlát kivárása nélkül:
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 \
+python -m pytest tests/test_boiler_buffer_operations.py \
+  -m 'integration and not slow' -vv
+```
+
+Az időkorlátos tesztek a tényleges `maxDurationSeconds` időt várják ki
+(alapértelmezésben műveletenként 300 másodperc):
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.106 \
+python -m pytest tests/test_boiler_buffer_operations.py -m 'integration and slow' -vv
+```
+
+A futó állapot megfigyeléséhez a maximális futásidő legyen hosszabb a
+`STATE_SETTLE_SECONDS + 2` értéknél. A tesztek hibánál is megkísérlik a művelet
+megszakítását és a hideg alapállapot visszaállítását. A fűtési igényeket a
+tesztek elején kikapcsolják. Az API-lépések és az állapot-/pumpaellenőrzések a
+meglévő JSON, Markdown és HTML riportokba kerülnek.
+
+### Tesztmód a hiányzó fizikai szenzor/PWM hardver megkerüléséhez
+
+Az új firmware feltöltése után, `TESTINGOVER_API` környezetben:
+
+```bash
+curl -X POST http://192.168.0.106/boiler/test-mode \
+  -H 'Content-Type: application/json' -d '{"enabled":true}'
+```
+
+Ez a kézi kapcsolás a pufferes kazántesztekhez már nem szükséges:
+a tesztmodul automatikusan bekapcsolja a tesztmódot, és az összes teszt,
+illetve a pumpák takarítása után visszaállítja az eredeti beállítást.
+Ez sikertelen teszt esetén is megtörténik; ha eredetileg ki volt kapcsolva,
+a végén újra kikapcsolódik. A kapcsolások az API-riportban is megjelennek.
+Hiányzó tesztmód API vagy üzemi firmware esetén egyértelmű előfeltételhibát jelez.
+A mód kézi
+kikapcsolásához küldj `{"enabled":false}` törzset ugyanoda. Az aktuális
+beállítás `GET /boiler/test-mode` kéréssel olvasható. Újraindítás után a mód
+kikapcsolódik; üzemi firmware-ben a bekapcsolás `403` választ ad. A
+hőmérsékleti és túlmelegedési ellenőrzések tesztmódban is működnek.
+
+A [test_boiler_test_mode.py](test_boiler_test_mode.py) a kapcsolást,
+az eredeti mód visszaállítását és a hibás kérések elutasítását ellenőrzi:
+
+```bash
+python -m pytest -k boiler_test_mode -m integration -vv
+```
+
+### Időkorlát utáni automatikus leállás
+
+A `test_boiler_buffer_configured_timeout` külön előfűtésre és hűtésre is kivárja
+a konfigurált futásidőt, a hőmérsékletek megváltoztatása nélkül. Ellenőrzi:
+
+- a kazán `COOLD`, a puffer és a vezérlő `STANDBY` állapotba kerül;
+- a keringetőpumpák leállnak, a leállítási listában szereplők is inaktívak;
+- a firmware már lezárta a műveletet (utólagos `cancel` kérésre `409` érkezik);
+- három további megfigyelés alatt sem indul újra automatikusan.
+
+A `not slow` szűrő ezeket kihagyja. Csak a két időkorlátos teszt futtatása,
+HTML riporttal:
+
+```bash
+HEATING_CONTROLLER_URL=http://192.168.0.116 \
+python -m pytest -k boiler_buffer_configured_timeout -m integration -vv \
+  --api-html-report=reports/boiler-buffer-timeout-report.html
+```
+
+300 másodperces beállítással a két teszt összesen legalább tíz percig tart.
+A teszt szimulált hőmérsékleteket használ: az állapotokat és a pumpák vezérlését
+ellenőrzi, a kazán tényleges fizikai kihűlését nem méri. Az időkorlát lejárata
+lezárja a kézi műveletet; utána a normál automatikus vezérlés működik tovább.

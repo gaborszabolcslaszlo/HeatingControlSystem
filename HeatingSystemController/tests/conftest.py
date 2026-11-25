@@ -144,7 +144,7 @@ class TraceSession(requests.Session):
             }
         )
         if url.rstrip("/").endswith(
-            ("/setTemp", "/heatingRequest", "/manualControlPumps")
+            ("/setTemp", "/heatingRequest", "/manualControlPumps", "/boiler/buffer-operation", "/boiler/test-mode")
         ):
             self.wait_before_next_state = STATE_SETTLE_SECONDS
         return response
@@ -519,7 +519,7 @@ def _test_tree_group(test_case: str) -> tuple[str, str]:
 
     if "stress" in test_name.lower():
         category = "API stressztesztek"
-    elif module == "test_state_transitions.py":
+    elif module in {"test_state_transitions.py", "test_boiler_buffer_operations.py"}:
         category = "Állapotátmeneti tesztek"
     else:
         category = "API funkcionális tesztek"

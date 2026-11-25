@@ -14,6 +14,11 @@ public:
     float outMin;
     float outMax;
 
+    // Ha deadZoneMax > deadZoneMin, a pozitív PID-igényhez deadZoneMax
+    // indulási eltolás adódik. Nulla vagy negatív igénynél 0 PWM a kimenet.
+    float deadZoneMin;
+    float deadZoneMax;
+
     float integral;
     float prevInput;
 
@@ -42,6 +47,7 @@ public:
 
     float compute(float setpoint,
                   float input);
+
 };
 
 #endif
